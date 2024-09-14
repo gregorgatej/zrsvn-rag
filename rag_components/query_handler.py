@@ -4,7 +4,6 @@
 # generating responses.
 
 import os
-import json
 from time import perf_counter as timer
 from .model_handling import LLM, initialize_local_llm
 from scripts.preprocess import init_embedding_model
@@ -111,15 +110,16 @@ def generate_response(
     num_context_items: int=5,
     use_lexical_search: bool = False,
     use_reranking: bool = False,
-    format_answer_text=True, 
-    return_answer_only=True, 
-    return_context_content=False
+    format_response_text=True, 
 ):
     """
     takes a query, finds relevant resources/context and generates an answer to the query based on the relevant resources.
 
     nr_context_items: determines the number of context items that are taken in account in the generation of answers.
     If set to 0 the query is used directly, without any additional context.
+    format_response_text: determines whether the output text should be cleaned by removing the prompt and special tokens 
+    like <bos> (beginning of sequence) and <eos> (end of sequence). Set to True to clean the output text and ensure it 
+    doesn't include these control tokens, or False to return the raw model output.
     """
 
     print("Entered generate_response...")
@@ -192,28 +192,36 @@ def generate_response(
         )
         output_text = response.choices[0].message.content  # accessed response content
 
-    if format_answer_text:
+    if format_response_text:
         output_text = output_text.replace(prompt, "").replace("<bos>", "").replace("<eos>", "")
 
-    # only return the answer without context items
-    if return_answer_only:
-        return output_text
-
-    final_output = {
-        "question": query,
-        "answer": output_text,
-        "llm": model_name
-    }
-
     if num_context_items > 0:
-        # Include context source in all cases
-        final_output["context_source"] = list(set([item["file_name"] for item in context_items]))
-        
-        # Conditionally include context content
-        if return_context_content:
-            final_output["context_content"] = list(set([item["chunk_text"] for item in context_items]))
+        final_output = {
+            "question": query,
+            "answer": output_text,
+            "llm": model_name,
+            "context_source": list(set([item["file_name"] for item in context_items])),
+            "context_content": list(set([item["chunk_text"] for item in context_items]))
+        }
+    else:
+        final_output = {
+            "question": query,
+            "answer": output_text,
+            "llm": model_name,
+            "context_source": None,
+            "context_content": None
+        }
 
-    return json.dumps(final_output, indent=2)
+    return final_output
+
+def format_response(
+        response: dict, 
+        return_answer_only=True
+) -> str:
+    if return_answer_only:
+        return response['answer']
+    else:
+        return response
 
 def lexical_search(
         query: str, 

@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os
 import streamlit as st
 from scripts.preprocess import preprocess_and_save
-from rag_components.query_handler import generate_response
+from rag_components.query_handler import generate_response, format_response
 from rag_components.model_handling import LLM
 
 # Load environment variables once
@@ -83,9 +83,21 @@ if submit_button:
                 num_context_items=num_context_items,
                 use_lexical_search=use_lexical_search,
                 use_reranking=use_reranking,
-                return_answer_only=True
             )
+
+        formatted_response = format_response(
+            response, 
+            return_answer_only=False
+        ) 
 
         # Display the response
         st.subheader("Answer:")
-        st.write(response)
+        st.write(formatted_response['answer'])
+
+        # Display context if available
+        if num_context_items > 0 and 'context_source' in formatted_response and 'context_content' in formatted_response:
+            st.subheader("Context:")
+            # Loop through the context sources and contents and display them
+            for i, (source, content) in enumerate(zip(formatted_response['context_source'], formatted_response['context_content']), start=1):
+                st.write(f"**Source {i}:** {source}")
+                st.write(f"**Text:** {content}")
