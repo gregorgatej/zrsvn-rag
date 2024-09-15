@@ -5,7 +5,7 @@
 
 import os
 from time import perf_counter as timer
-from .model_handling import LLM, initialize_local_llm
+from .model_handling import LLM, initialize_local_llm, query_local_llm_server
 from scripts.preprocess import init_embedding_model
 import openai
 import numpy as np
@@ -127,7 +127,6 @@ def generate_response(
     provider = llm.get_provider()
     model_name = llm.get_model_name()
 
-    # initialize the appropriate model based on llm
     if provider == "hugging_face":
         tokenizer, llm = initialize_local_llm(model_name)
     else:
@@ -180,6 +179,8 @@ def generate_response(
                                      do_sample=True,
                                      max_new_tokens=max_new_tokens)
         output_text = tokenizer.decode(outputs[0])
+    elif provider == "local":
+        output_text = query_local_llm_server(query)
     else:
         response = client.chat.completions.create(
             messages=[

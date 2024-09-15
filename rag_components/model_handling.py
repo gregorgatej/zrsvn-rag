@@ -1,5 +1,6 @@
 from enum import Enum
 import os
+import requests
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers.utils import is_flash_attn_2_available
 import torch
@@ -11,6 +12,7 @@ class LLM(Enum):
     GEMMA_7B_IT = ("hugging_face", "google/gemma-7b-it")
     LLAMA_2_7B_CHAT = ("hugging_face", "meta-llama/Llama-2-7b-chat-hf")
     MISTRAL_7B_INSTRUCT = ("hugging_face", "mistralai/Mistral-7B-Instruct-v0.1")
+    LOCAL_LLM_SERVER = ("local", "llama-2-7b-local")
 
     def get_provider(self):
         return self.value[0]
@@ -25,6 +27,13 @@ hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN")
 
 def initialize_local_llm(model_id):
     global hugging_face_tokenizer, hugging_face_model
+
+    #TODO: Optimize this part of code, returning None probably not the best option
+    # Check if it's the local LLM server case
+    if model_id == "llama-2-7b-local":
+        # In the case of the local model, we do not need to initialize a model/tokenizer locally
+        # Instead, we'll return None and rely on a separate function to make HTTP requests
+        return None, None
 
     if hugging_face_tokenizer is not None and hugging_face_model is not None:
         return hugging_face_tokenizer, hugging_face_model
@@ -44,3 +53,14 @@ def initialize_local_llm(model_id):
         hugging_face_model.to("cuda")
 
     return hugging_face_tokenizer, hugging_face_model
+
+def query_local_llm_server(query: str, server_url: str = "http://192.168.20.220:5000/generate"):
+    """
+    Send a query to the local LLM server and return the response.
+    """
+    try:
+        response = requests.post(server_url, json={"input_text": query})
+        response.raise_for_status()
+        return response.json().get("answer", "Error: No response from server")
+    except requests.exceptions.RequestException as e:
+        return f"Error querying local LLM server: {e}"

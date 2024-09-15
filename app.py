@@ -23,7 +23,8 @@ llm_options = {
     "OpenAI GPT-4o Mini": LLM.GPT_4O_MINI,
     "Google Gemma 7B": LLM.GEMMA_7B_IT,
     "Meta LLaMA 2 7B Chat": LLM.LLAMA_2_7B_CHAT,
-    "Mistral 7B Instruct": LLM.MISTRAL_7B_INSTRUCT
+    "Mistral 7B Instruct": LLM.MISTRAL_7B_INSTRUCT,
+    "Local Llama-2 7B Server": LLM.LOCAL_LLM_SERVER
 }
 selected_model_name = st.sidebar.selectbox("Choose an LLM:", list(llm_options.keys()))
 selected_llm = llm_options[selected_model_name]
@@ -92,6 +93,7 @@ if submit_button:
 
         # Display the response
         st.subheader("Answer:")
+        print(formatted_response)
         st.write(formatted_response['answer'])
 
         # Display context if available
