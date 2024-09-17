@@ -8,6 +8,7 @@ from time import perf_counter as timer
 from .model_handling import LLM, initialize_local_llm, query_local_llm_server
 from scripts.preprocess import init_embedding_model
 import openai
+from openai import AzureOpenAI
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -129,6 +130,14 @@ def generate_response(
 
     if provider == "hugging_face":
         tokenizer, llm = initialize_local_llm(model_name)
+    elif provider == "azure":
+        azure_oai_key = os.getenv("AZURE_OAI_KEY")
+        azure_oai_endpoint = os.getenv("AZURE_OAI_ENDPOINT")
+        client = AzureOpenAI(
+            azure_endpoint=azure_oai_endpoint,
+            api_key=azure_oai_key,
+            api_version="2024-02-15-preview"
+        )
     else:
         client = openai.OpenAI(api_key=openai.api_key)
 
@@ -181,6 +190,7 @@ def generate_response(
         output_text = tokenizer.decode(outputs[0])
     elif provider == "local":
         output_text = query_local_llm_server(query)
+    #The same if provider == "azure" or "openai"
     else:
         response = client.chat.completions.create(
             messages=[

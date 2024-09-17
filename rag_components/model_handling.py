@@ -13,6 +13,7 @@ class LLM(Enum):
     LLAMA_2_7B_CHAT = ("hugging_face", "meta-llama/Llama-2-7b-chat-hf")
     MISTRAL_7B_INSTRUCT = ("hugging_face", "mistralai/Mistral-7B-Instruct-v0.1")
     LOCAL_LLM_SERVER = ("local", "llama-2-7b-local")
+    AZURE_OAI_DEPLOYMENT = ("azure", f"{os.getenv("AZURE_OAI_DEPLOYMENT")}")
 
     def get_provider(self):
         return self.value[0]

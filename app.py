@@ -24,7 +24,8 @@ llm_options = {
     "Google Gemma 7B": LLM.GEMMA_7B_IT,
     "Meta LLaMA 2 7B Chat": LLM.LLAMA_2_7B_CHAT,
     "Mistral 7B Instruct": LLM.MISTRAL_7B_INSTRUCT,
-    "Local Llama-2 7B Server": LLM.LOCAL_LLM_SERVER
+    "Local Llama-2 7B Server": LLM.LOCAL_LLM_SERVER,
+    "Azure OpenAI Deployment": LLM.AZURE_OAI_DEPLOYMENT
 }
 selected_model_name = st.sidebar.selectbox("Choose an LLM:", list(llm_options.keys()))
 selected_llm = llm_options[selected_model_name]
