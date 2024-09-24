@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Response</title>
+</head>
+<body>
+    <h1>Answer:</h1>
+    <p>{{ answer }}</p>
+
+    <h2>Context:</h2>
+    {% if context_source %}
+        {% for i in range(context_source|length) %}
+            <p><strong>Source {{ i + 1 }}:</strong> {{ context_source[i] }}</p>
+            <p><strong>Text:</strong> {{ context_content[i] }}</p>
+        {% endfor %}
+    {% else %}
+        <p>No context available</p>
+    {% endif %}
+</body>
+</html>

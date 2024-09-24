@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Question Answering with RAG and LLMs</title>
+</head>
+<body>
+    <h1>Question Answering with RAG and LLMs</h1>
+    <form action="/get" method="POST">
+        <label for="user_query">Your Question:</label><br>
+        <input type="text" id="user_query" name="user_query" required><br><br>
+
+        <label for="selected_model">Choose an LLM:</label><br>
+        <select id="selected_model" name="selected_model">
+            {% for model_name in llm_options %}
+                <option value="{{ model_name }}">{{ model_name }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label for="num_context_items">Number of Context Items:</label><br>
+        <input type="range" id="num_context_items" name="num_context_items" min="0" max="10" value="5"><br><br>
+
+        <input type="checkbox" id="use_lexical_search" name="use_lexical_search">
+        <label for="use_lexical_search">Use Lexical Search</label><br><br>
+
+        <input type="checkbox" id="use_reranking" name="use_reranking">
+        <label for="use_reranking">Use Reranking</label><br><br>
+
+        <input type="submit" value="Get Answer">
+    </form>
+</body>
+</html>
