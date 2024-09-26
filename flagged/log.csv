@@ -1,0 +1,5 @@
+Your Question,Choose a Language Model,Number of Context Items,Use Lexical Search,Use Reranking,Answer,Context,flag,username,timestamp
+Does Joscha Bach like poodles?,OpenAI GPT-4o Mini,1,false,false,"Yes, Joscha Bach likes poodles, as he thinks they are cute.","**Source 1:** cleaned_Virtualism as a Perspective on Consciousness by Joscha Bach.txt
+**Text:** Joscha Bach thinks poodles are cute.
+
+",,,2024-09-24 12:50:25.963975
