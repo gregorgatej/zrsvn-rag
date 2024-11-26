@@ -137,4 +137,4 @@ def build_interface():
 # Launch the Gradio app
 if __name__ == "__main__":
     interface = build_interface()
-    interface.launch()
+    interface.launch(favicon_path="./assets/zrsvn_logo.png")

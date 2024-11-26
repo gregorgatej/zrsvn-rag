@@ -107,7 +107,7 @@ def generate_response(
     index,
     system_content: str="You are a helpful assistant",
     temperature: float=0.7, 
-    max_new_tokens: int=256,
+    max_new_tokens: int=512,
     num_context_items: int=5,
     use_lexical_search: bool = False,
     use_reranking: bool = False,
