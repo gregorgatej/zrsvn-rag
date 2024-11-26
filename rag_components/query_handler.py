@@ -190,7 +190,7 @@ def generate_response(
         output_text = tokenizer.decode(outputs[0])
     elif provider == "local":
         output_text = query_local_llm_server(query)
-    #The same if provider == "azure" or "openai"
+    #The same if provider is "azure" or "openai"
     else:
         response = client.chat.completions.create(
             messages=[

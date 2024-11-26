@@ -15,7 +15,8 @@ from rank_bm25 import BM25Okapi
 import pickle
 
 _global_embedding_model = None
-EMBEDDING_MODEL_NAME = "all-mpnet-base-v2"
+#EMBEDDING_MODEL_NAME = "all-mpnet-base-v2"
+EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large"
 
 def text_formatter(text: str, patterns: list[str]) -> str: 
     """Performs minor formatting on text."""
