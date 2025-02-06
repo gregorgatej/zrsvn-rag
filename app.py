@@ -92,16 +92,20 @@ def handle_feedback(model_selector, num_context_items, use_lexical_search, use_r
 
 # Gradio Blocks implementation with vertical alignment
 def build_interface():
-    with gr.Blocks() as demo:
+    with gr.Blocks(title="ZRSVN RAG") as demo:
         gr.Markdown("# ZRSVN RAG aplikacija za odgovarjanje na vprašanja")
         gr.Markdown("Vnesite svoje vprašanje spodaj in prejmite odgovor, ki ga ustvari izbrani veliki jezikovni model (LLM).")
         
         with gr.Column(elem_id="main_column", scale=1):
             question = gr.Textbox(label="Vaše vprašanje", lines=2, placeholder="Vnesite vaše vprašanje...")
             model_selector = gr.Dropdown(choices=list(llm_options.keys()), label="Izberite veliki jezikovni model", value="OpenAI GPT-4o Mini")
-            num_context_items = gr.Slider(minimum=0, maximum=10, step=1, value=5, label="Število gradiva zajetega v kontekst")
-            use_lexical_search = gr.Checkbox(label="Uporabi klasično, leksikalno iskanje")
-            use_reranking = gr.Checkbox(label="Uporabi "reranking"")
+            num_context_items = gr.Slider(minimum=0, maximum=10, step=1, value=5, label="Število dokumentov zajetih v kontekst")
+            
+            # Additional Options as an Accordion
+            with gr.Accordion("Dodatne možnosti iskanja", open=False):
+                use_lexical_search = gr.Checkbox(label="Uporabi klasično (leksikalno) iskanje")
+                use_reranking = gr.Checkbox(label="Uporabi naknadno rangiranje virov konteksta")
+            
             submit_button = gr.Button("Generiraj odgovor")
                 
             answer_output = gr.Textbox(label="Odgovor")
@@ -137,4 +141,4 @@ def build_interface():
 # Launch the Gradio app
 if __name__ == "__main__":
     interface = build_interface()
-    interface.launch(favicon_path="./assets/zrsvn_logo.png", title="ZRSVN RAG")
+    interface.launch(favicon_path="./assets/zrsvn_logo.png", share=True)
