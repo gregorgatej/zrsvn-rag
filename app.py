@@ -52,6 +52,13 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
     results = cur.fetchall()
     
     filenames = [row[0] for row in results]
+
+    cur.execute("DELETE FROM selected_files_log;") #Clear old results.
+    for filename in filenames:
+        cur.execute("INSERT INTO selected_files_log (filename) VALUES (%s);", (filename,))
+
+    conn.commit()
+
     return {"selected_filenames": filenames}
 
 

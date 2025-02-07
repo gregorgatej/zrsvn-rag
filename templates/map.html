@@ -96,6 +96,8 @@
             map.on('draw:drawstart', function () {
                 console.log("✏️ Drawing started - Hiding clusters");
                 map.removeLayer(markerCluster);
+                // 🔹 Automatically clear previous rectangle
+                drawnItems.clearLayers();
             });
 
             // Show clusters again when drawing stops
