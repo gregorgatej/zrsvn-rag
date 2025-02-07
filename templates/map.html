@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+    <meta charset="UTF-8">
+    <title>Map Interface</title>
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <!-- Leaflet Draw CSS & JS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <!-- Leaflet Marker Cluster CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css">
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+    <style>
+        #map { height: 500px; border: 1px solid black; }
+        #output { margin-top: 10px; font-family: Arial, sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="output"></div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Initialize map
+            var map = L.map('map').setView([46.05, 14.5], 9);
+            
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Initialize marker cluster group
+            var markerCluster = L.markerClusterGroup();
+            map.addLayer(markerCluster);
+
+            // Fetch points from API
+            fetch("http://localhost:8000/get_all_points/")
+                .then(response => response.text())
+                .then(text => {
+                    console.log("📡 Received Data:", text);
+
+                    const lines = text.trim().split("\n");
+                    console.log(`📌 Number of points received: ${lines.length}`);
+
+                    lines.forEach(line => {
+                        try {
+                            let point = JSON.parse(line);
+                            
+                            if (point.type === "Point") {
+                                let coords = point.coordinates;
+
+                                // Add small jitter to prevent exact overlap
+                                let jitter = (Math.random() - 0.5) * 0.0005;
+
+                                let marker = L.circleMarker([coords[1] + jitter, coords[0] + jitter], {
+                                    radius: 2.5,
+                                    color: "red",
+                                    fillColor: "red",
+                                    fillOpacity: 0.7
+                                }).bindPopup(`Coordinates: ${coords[1]}, ${coords[0]}`);
+
+                                markerCluster.addLayer(marker);
+                            }
+                        } catch (error) {
+                            console.error("❌ JSON Parse Error:", error, "Data:", line);
+                        }
+                    });
+                })
+                .catch(error => console.error("❌ Fetch Error:", error));
+
+            // Leaflet Draw Tools
+            var drawnItems = new L.FeatureGroup();
+            map.addLayer(drawnItems);
+
+            var drawControl = new L.Control.Draw({
+                draw: {
+                    polygon: false,
+                    polyline: false,
+                    circle: false,
+                    marker: false,
+                    circlemarker: false,
+                    rectangle: true
+                }
+            });
+
+            map.addControl(drawControl);
+
+            // Hide clusters when drawing starts
+            map.on('draw:drawstart', function () {
+                console.log("✏️ Drawing started - Hiding clusters");
+                map.removeLayer(markerCluster);
+            });
+
+            // Show clusters again when drawing stops
+            map.on('draw:drawstop', function () {
+                console.log("✅ Drawing stopped - Showing clusters");
+                map.addLayer(markerCluster);
+            });
+
+            // Handle area selection
+            map.on('draw:created', function (e) {
+                drawnItems.clearLayers();
+                var layer = e.layer;
+                drawnItems.addLayer(layer);
+
+                var bounds = layer.getBounds();
+                var minLat = bounds.getSouthWest().lat;
+                var minLon = bounds.getSouthWest().lng;
+                var maxLat = bounds.getNorthEast().lat;
+                var maxLon = bounds.getNorthEast().lng;
+
+                fetch(`http://localhost:8000/get_filenames/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById("output").innerHTML = 
+                            `<h3>Izbrani dokumenti:</h3> <pre>${JSON.stringify(data.selected_filenames, null, 2)}</pre>`;
+                    })
+                    .catch(error => console.error("Error:", error));
+            });
+        });
+    </script>
+</body>
+</html>

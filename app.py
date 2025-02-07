@@ -1,13 +1,89 @@
-import os, csv
+import os, csv, json
 from datetime import datetime
 import gradio as gr
 from dotenv import load_dotenv
 from scripts.preprocess import preprocess_and_save
 from rag_components.query_handler import generate_response, format_response
 from rag_components.model_handling import LLM
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+import psycopg2
 
 # Load environment variables
 load_dotenv()
+
+POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
+
+app = FastAPI()
+
+@app.get("/get_all_points/")
+def get_all_points():
+    """
+    Retrieve all points from dump1_cleaned and return as newline-delimited JSON.
+    """
+    query = """
+        SELECT ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326)) AS geom
+        FROM dump1_cleaned;
+    """
+    cur.execute(query)
+    
+    def generate():
+        for row in cur.fetchall():
+            yield json.dumps({"type": "Point", "coordinates": json.loads(row[0])["coordinates"]}) + "\n"
+    
+    return StreamingResponse(generate(), media_type="application/json")
+
+@app.get("/get_filenames/")
+def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float):
+    """
+    Retrieve filenames from dump1_cleaned where points fall within the selected bounding box.
+    """
+    query = """
+        SELECT filename FROM dump1_cleaned
+        WHERE ST_Within(
+        ST_Transform(wkb_geometry, 4326), 
+        ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+        );
+    """
+    cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
+    results = cur.fetchall()
+    
+    filenames = [row[0] for row in results]
+    return {"selected_filenames": filenames}
+
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (or specify frontend URL)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount the templates folder for serving static HTML files
+app.mount("/templates", StaticFiles(directory="templates"), name="templates")
+
+# Define template rendering
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/map")
+def serve_map(request: Request):
+    return templates.TemplateResponse("map.html", {"request": request})
+
+# Connect to PostgreSQL
+# psql -h localhost -p 5432 -U ggatej-pg postgis_test1
+conn = psycopg2.connect(
+    dbname="postgis_test1",
+    user="ggatej-pg",
+    password=POSTGIS_PASSWORD,
+    host="localhost",
+    port="5432"
+)
+cur = conn.cursor()
 
 # Environment variables are now globally available
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -93,32 +169,36 @@ def handle_feedback(model_selector, num_context_items, use_lexical_search, use_r
 # Gradio Blocks implementation with vertical alignment
 def build_interface():
     with gr.Blocks(title="ZRSVN RAG") as demo:
-        gr.Markdown("# ZRSVN RAG aplikacija za odgovarjanje na vprašanja")
-        gr.Markdown("Vnesite svoje vprašanje spodaj in prejmite odgovor, ki ga ustvari izbrani veliki jezikovni model (LLM).")
-        
+        gr.Markdown("# ZRSVN RAG TESTNA aplikacija za odgovarjanje na vprašanja")
+        gr.Markdown("Vnesite svoje vprašanje spodaj TEST in prejmite odgovor, ki ga ustvari izbrani veliki jezikovni model (LLM).")
+
         with gr.Column(elem_id="main_column", scale=1):
+            # 🔹 Ensure the iframe is properly embedded
+            gr.HTML("""
+                <iframe id="map-frame" src="http://127.0.0.1:8000/map" width="100%" height="400px" 
+                style="border:1px solid black; display:block;"></iframe>
+            """)
+
+
             question = gr.Textbox(label="Vaše vprašanje", lines=2, placeholder="Vnesite vaše vprašanje...")
             model_selector = gr.Dropdown(choices=list(llm_options.keys()), label="Izberite veliki jezikovni model", value="OpenAI GPT-4o Mini")
             num_context_items = gr.Slider(minimum=0, maximum=10, step=1, value=5, label="Število dokumentov zajetih v kontekst")
-            
-            # Additional Options as an Accordion
+
             with gr.Accordion("Dodatne možnosti iskanja", open=False):
                 use_lexical_search = gr.Checkbox(label="Uporabi klasično (leksikalno) iskanje")
                 use_reranking = gr.Checkbox(label="Uporabi naknadno rangiranje virov konteksta")
-            
+
             submit_button = gr.Button("Generiraj odgovor")
-                
+
             answer_output = gr.Textbox(label="Odgovor")
             context_output = gr.Textbox(label="Kontekst")
 
-            # Add feedback mechanism with thumbs up/down
             feedback_buttons = gr.Radio(choices=["👍", "👎"], label="Se vam je zdel odgovor uporaben?")
             comment_box = gr.Textbox(label="Napišite komentar (opcijsko)", placeholder="Vaš komentar vnesite tu...")
             feedback_button = gr.Button("Pošlji povratno informacijo")
 
             feedback_output = gr.Markdown()
 
-        # Define the button's functionality
         submit_button.click(
             fn=handle_query, 
             inputs=[question, model_selector, num_context_items, use_lexical_search, use_reranking], 
@@ -129,7 +209,6 @@ def build_interface():
             outputs=[feedback_buttons, comment_box, feedback_output]
         )
 
-
         feedback_button.click(
             fn=handle_feedback, 
             inputs=[model_selector, num_context_items, use_lexical_search, use_reranking, feedback_buttons, comment_box, question, answer_output, context_output], 
@@ -138,7 +217,11 @@ def build_interface():
 
     return demo
 
+
+
+
+
 # Launch the Gradio app
 if __name__ == "__main__":
     interface = build_interface()
-    interface.launch(favicon_path="./assets/zrsvn_logo.png", share=True)
+    interface.launch(favicon_path="./assets/zrsvn_logo.png", share=False)
