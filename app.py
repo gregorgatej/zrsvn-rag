@@ -19,14 +19,23 @@ POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
 
 app = FastAPI()
 
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (or specify frontend URL)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/get_all_points/")
 def get_all_points():
     """
-    Retrieve all points from dump1_cleaned and return as newline-delimited JSON.
+    Retrieve all points from najdbe and return as newline-delimited JSON.
     """
     query = """
         SELECT ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326)) AS geom
-        FROM dump1_cleaned;
+        FROM najdbe;
     """
     cur.execute(query)
     
@@ -39,13 +48,15 @@ def get_all_points():
 @app.get("/get_filenames/")
 def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float):
     """
-    Retrieve filenames from dump1_cleaned where points fall within the selected bounding box.
+    Retrieve filenames from files where najdbe (previously points) fall within the selected bounding box.
     """
     query = """
-        SELECT filename FROM dump1_cleaned
+        SELECT DISTINCT f.file_name 
+        FROM files f
+        JOIN najdbe n ON f.id = n.files_id  -- Match on files_id
         WHERE ST_Within(
-        ST_Transform(wkb_geometry, 4326), 
-        ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+            ST_Transform(n.wkb_geometry, 4326), 
+            ST_MakeEnvelope(%s, %s, %s, %s, 4326)
         );
     """
     cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
@@ -60,16 +71,6 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
     conn.commit()
 
     return {"selected_filenames": filenames}
-
-
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (or specify frontend URL)
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Mount the templates folder for serving static HTML files
 app.mount("/templates", StaticFiles(directory="templates"), name="templates")
