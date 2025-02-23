@@ -238,8 +238,6 @@ def run_search(query_text, search_method, k_results):
         font-size: 14px; 
         color: #333; 
         transition: background-color 0.2s ease-in-out;'
-        onmouseover="this.style.backgroundColor='#f9fafb';"
-        onmouseout="this.style.backgroundColor='transparent';"
     >
         {''.join(answers) if answers else 'No results found.'}
     </div>
@@ -319,73 +317,130 @@ def build_gradio_interface():
 
         # The map is served at /map endpoint. We embed it via iframe
         gr.HTML("""
-          <style>
-            .map-container {
-              display: flex;
-              flex-direction: column;
-              height: 70vh; 
-              /* The black border goes HERE so it's around the entire iframe. */
-              /*border: 1px solid black;*/  
-              box-sizing: border-box;
-              margin: 0;
-              padding: 0;
-              overflow: hidden;
-            }
-            .map-container iframe {
-              flex: 1;
-              width: 100%;
-              display: block;
-              margin: 0;
-              padding: 0;
-              /* No border on the iframe itself, so the container border is uniform. */
-              border: none;
-              overflow: hidden;
-            }
-          </style>
-
-          <div class="map-container">
-            <iframe src="http://127.0.0.1:8000/map" scrolling="no"></iframe>
-          </div>
+            <style>
+                .map-container {
+                    display: flex;
+                    flex-direction: column;
+                    height: 70vh; 
+                    border: 1px solid #e5e7eb;  /* Light gray border */
+                    border-radius: 5px; /* Rounded corners */
+                    box-sizing: border-box;
+                    padding: 10px; /* Padding for spacing */
+                    transition: background-color 0.2s ease-in-out;
+                    background-color: white; /* Ensure the background is white */
+                }
+        
+                .map-container-label {
+                    font-family: Inter, sans-serif;
+                    font-size: 14px;
+                    color: #6b7280 !important; /* Force gray color */
+                    font-weight: 500;
+                    margin-bottom: 8px;
+                }
+        
+                .map-container iframe {
+                    flex: 1;
+                    width: 100%;
+                    display: block;
+                    margin: 0;
+                    padding: 0;
+                    border: none; /* No border on iframe itself */
+                    border-radius: 5px; /* Rounded iframe */
+                    overflow: hidden;
+                }
+            </style>
+        
+            <div class="map-container">
+                <div class="map-container-label">Determine the scope of search</div>
+                <iframe src="http://127.0.0.1:8000/map" scrolling="no"></iframe>
+            </div>
         """)
 
 
 
 
 
-        #
-        # ─────────────────────────────────────────────────────────────────
-        #  Row for query, search method, slider
-        # ─────────────────────────────────────────────────────────────────
+
+     # Apply custom CSS for consistent styling
+        demo.css = """
+            #query-input, #search-method, #results-slider {
+                font-family: Inter, sans-serif;
+                font-size: 14px;
+                border: 1px solid #e5e7eb;
+                border-radius: 5px;
+                padding: 8px;
+            }
+
+            #query-input label, #search-method label, #results-slider label {
+                font-family: Inter, sans-serif;
+                font-size: 14px;
+                color: #666;
+                font-weight: 500;
+            }
+
+            #search-method label {
+                display: flex;
+                align-items: center;
+            }
+
+            #results-slider input {
+                border: 1px solid #e5e7eb;
+                border-radius: 5px;
+            }
+
+            #search-btn, #show-docs-btn {
+                font-family: Inter, sans-serif;
+                font-size: 14px;
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 5px;
+                padding: 8px 12px;
+                transition: background-color 0.2s ease-in-out;
+            }
+
+            #search-btn:hover, #show-docs-btn:hover {
+                background-color: #f3f4f6;
+            }
+        """
+
+
+        # Query input, search method, and results slider
         with gr.Row():
             query_box = gr.Textbox(
                 label="Enter your query",
-                placeholder="E.g., 'Environmental impact of project X?'"
+                placeholder="E.g., 'Environmental impact of project X?'",
+                elem_id="query-input",
             )
             search_method = gr.Radio(
                 choices=["Lexical", "Semantic", "Hybrid"],
                 value="Hybrid",
-                label="Search Method"
+                label="Search Method",
+                interactive=True,
+                elem_id="search-method",
             )
             k_slider = gr.Slider(
                 minimum=1,
                 maximum=15,
                 value=5,
                 step=1,
-                label="Number of Results"
+                label="Number of Results",
+                interactive=True,
+                elem_id="results-slider",
             )
 
-        #
-        # ─────────────────────────────────────────────────────────────────
-        #  Row for buttons (Search & Show Docs)
-        # ─────────────────────────────────────────────────────────────────
-        with gr.Row():
-            submit_button = gr.Button("Search")
-            show_docs_button = gr.Button("Show Selected Docs")
 
-        #
-        # ─────────────────────────────────────────────────────────────────
-        #  Row for the search results and status
-        # ─────────────────────────────────────────────────────────────────
+        # Row for buttons
+        with gr.Row():
+            submit_button = gr.Button(
+                "Search",
+                elem_id="search-btn",
+            )
+            show_docs_button = gr.Button(
+                "Show Selected Docs",
+                elem_id="show-docs-btn",
+            )
+
+        # Results output section
         with gr.Row():
             output_area = gr.HTML(
                 label="Search Results",
@@ -416,9 +471,7 @@ def build_gradio_interface():
                 """
             )
 
-
-
-        # Wire up the callbacks *after* the components exist:
+        # Wire up the callbacks
         submit_button.click(
             fn=run_search,
             inputs=[query_box, search_method, k_slider],
@@ -428,11 +481,10 @@ def build_gradio_interface():
         show_docs_button.click(
             fn=fetch_selected_docs,
             inputs=[],
-            outputs=[status_area]   # results go to 'status_area'
+            outputs=[status_area]
         )
 
     return demo
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
