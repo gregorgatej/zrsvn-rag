@@ -310,56 +310,11 @@ def fetch_selected_docs():
         >Error retrieving selected docs: {e}</div>
         """
 
+                         #Geografska zamejitev obsega iskanja.
 
 def build_gradio_interface():
     with gr.Blocks(title="ZRSVN RAG with Postgres & BGE-M3 Embeddings") as demo:
         gr.Markdown("## Example RAG App with Leaflet Map + Postgres-based Searching")
-
-        # The map is served at /map endpoint. We embed it via iframe
-        gr.HTML("""
-            <style>
-                .map-container {
-                    display: flex;
-                    flex-direction: column;
-                    height: 70vh; 
-                    border: 1px solid #e5e7eb;  /* Light gray border */
-                    border-radius: 5px; /* Rounded corners */
-                    box-sizing: border-box;
-                    padding: 10px; /* Padding for spacing */
-                    transition: background-color 0.2s ease-in-out;
-                    background-color: white; /* Ensure the background is white */
-                }
-        
-                .map-container-label {
-                    font-family: Inter, sans-serif;
-                    font-size: 14px;
-                    color: #6b7280 !important; /* Force gray color */
-                    font-weight: 500;
-                    margin-bottom: 8px;
-                }
-        
-                .map-container iframe {
-                    flex: 1;
-                    width: 100%;
-                    display: block;
-                    margin: 0;
-                    padding: 0;
-                    border: none; /* No border on iframe itself */
-                    border-radius: 5px; /* Rounded iframe */
-                    overflow: hidden;
-                }
-            </style>
-        
-            <div class="map-container">
-                <div class="map-container-label">Determine the scope of search</div>
-                <iframe src="http://127.0.0.1:8000/map" scrolling="no"></iframe>
-            </div>
-        """)
-
-
-
-
-
 
      # Apply custom CSS for consistent styling
         demo.css = """
@@ -409,14 +364,15 @@ def build_gradio_interface():
             query_box = gr.Textbox(
                 label="Enter your query",
                 placeholder="E.g., 'Environmental impact of project X?'",
-                elem_id="query-input",
+                #By commenting this out we keep the default title font etc. in place.
+                #elem_id="query-input",
             )
             search_method = gr.Radio(
                 choices=["Lexical", "Semantic", "Hybrid"],
                 value="Hybrid",
                 label="Search Method",
                 interactive=True,
-                elem_id="search-method",
+                #elem_id="search-method",
             )
             k_slider = gr.Slider(
                 minimum=1,
@@ -425,8 +381,50 @@ def build_gradio_interface():
                 step=1,
                 label="Number of Results",
                 interactive=True,
-                elem_id="results-slider",
+                #elem_id="results-slider",
             )
+
+                         #Geografska zamejitev obsega iskanja.
+                        # The map is served at /map endpoint. We embed it via iframe
+        
+        with gr.Accordion(
+            label="Geographically determine scope of documents that are searched over",
+            open=False):
+
+            # Title row: Scope title + Help button in the same row
+            #with gr.Row(equal_height=True):
+
+
+            # The map iframe (appears when the first accordion opens)
+            gr.HTML("""
+                <style>
+                    .map-container {
+                        display: flex;
+                        flex-direction: column;
+                        height: 70vh; 
+                        border: none; 
+                        border-radius: 5px; 
+                        box-sizing: border-box;
+                        padding: 0; 
+                        transition: background-color 0.2s ease-in-out;
+                        background-color: white; 
+                    }
+
+                    .map-container iframe {
+                        flex: 1;
+                        width: 100%;
+                        display: block;
+                        margin: 0;
+                        padding: 0;
+                        border: none;
+                        overflow: hidden;
+                    }
+                </style>
+
+                <div class="map-container">
+                    <iframe src="http://127.0.0.1:8000/map" scrolling="no"></iframe>
+                </div>
+            """)
 
 
         # Row for buttons
@@ -470,6 +468,13 @@ def build_gradio_interface():
                 >Status or summary.</div>
                 """
             )
+        
+        with gr.Accordion("📖 Navodila za uporabo", open=False):  
+                gr.Markdown("""
+                    By default, all documents are included in the search.
+                    By drawing a rectangle on the map, you can narrow down the search to include 
+                    only documents that are connected to a specific area.
+                """)
 
         # Wire up the callbacks
         submit_button.click(
@@ -497,17 +502,3 @@ if __name__ == "__main__":
         server_port=7860,  # or any port you prefer
         share=False
     )
-
-# ─────────────────────────────────────────────────────────────────────────────
-# What Was Removed or Changed?
-# ─────────────────────────────────────────────────────────────────────────────
-# 1) Removed references to the old 'rag_components', 'scripts.preprocess', 
-#    'BM25Okapi', 'faiss' indexing, and older "LLM" enumerations for GPT or Azure.
-# 2) Removed the CSV feedback logic and advanced search config from the old code. 
-# 3) No longer doing local or Azure model calls. 
-# 4) The code now uses the new Postgres-based chunk storage and the new BGE-M3 
-#    embedding approach (see model_handling.py). 
-# 5) Replaced old references to produce a simpler Gradio UI that calls the 
-#    lexical/semantic/hybrid searches from query_handler.py.
-# 6) Replaced or removed streaming + advanced logic for simpler classical loops 
-#    and straightforward functionalities.
