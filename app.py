@@ -3,6 +3,7 @@ import json
 import gradio as gr
 import psycopg2
 import requests
+import boto3
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,6 +20,20 @@ from query_handler import lexical_search_limited_scope, semantic_search_limited_
 # Load environment variables for DB password
 load_dotenv()
 POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
+
+# Load S3 credentials
+s3_access_key = os.getenv("S3_ACCESS_KEY")
+s3_secret_access_key = os.getenv("S3_SECRET_ACCESS_KEY")
+s3_endpoint_url = "https://moja.shramba.arnes.si"
+bucket_name = "zrsvn-monitoringi-raziskave"
+
+# Initialize S3 client
+s3_client = boto3.client(
+    's3',
+    endpoint_url=s3_endpoint_url,
+    aws_access_key_id=s3_access_key,
+    aws_secret_access_key=s3_secret_access_key
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Initialize FastAPI
@@ -148,25 +163,43 @@ def serve_map(request: Request):
     """
     return templates.TemplateResponse("map.html", {"request": request})
 
+def generate_presigned_url(file_key, page_number):
+    """
+    Generates a presigned URL for accessing a specific file and appends a page anchor.
+    """
+    try:
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': file_key},
+            ExpiresIn=3600  # URL valid for 1 hour
+        )
+        return f"{presigned_url}#page={page_number}"
+    except Exception as e:
+        return f"Error generating link: {e}"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Gradio integration
 # ─────────────────────────────────────────────────────────────────────────────
 def run_search(query_text, search_method, k_results):
-    """
-    Called by Gradio UI to run the user-specified search type 
-    (Lexical, Semantic, or Hybrid) with top-k results.
-    """
     if not query_text or not search_method:
-        return "Please enter a query and select a search method.", ""
+        return """
+        <div style='
+            border: 1px solid #e5e7eb; 
+            padding: 10px; 
+            min-height: 80px; 
+            border-radius: 5px; 
+            font-family: Inter, sans-serif; 
+            font-size: 14px; 
+            color: #666;'
+        >Please enter a query and select a search method.</div>
+        """, "<div style='border: 1px solid #e5e7eb; padding: 10px; min-height: 80px; border-radius: 5px; font-family: Inter, sans-serif; font-size: 14px; color: #666;'>Status or summary.</div>"
 
-    # Ensure we do an integer cast for top-k
     try:
         k = int(k_results)
     except ValueError:
         k = 5
 
-    # Run the desired search
     if search_method == "Lexical":
         results = lexical_search_limited_scope(query_text, k=k, db_params=db_params)
     elif search_method == "Semantic":
@@ -174,48 +207,111 @@ def run_search(query_text, search_method, k_results):
     else:
         results = hybrid_search_limited_scope(query_text, k=k, db_params=db_params)
 
-    # Format results for display
     answers = []
-
     for result in results:
         if search_method == "Lexical":
-            # Lexical search follows (chunk_id, chunk_text, file_name, page_number, score)
             chunk_id, chunk_text, file_name, page_number, score = result
         elif search_method == "Semantic":
-            # Semantic search follows (chunk_id, chunk_text, file_name, page_number, score)
             chunk_id, chunk_text, file_name, page_number, score = result
         else:
-            # Hybrid search follows (chunk_id, score, chunk_text, file_name, page_number)
             chunk_id, score, chunk_text, file_name, page_number = result
 
-        snippet = (
-            f"File: {file_name}, Page: {page_number}, Score: {score:.4f}\n"
-            f"Chunk: {chunk_text[:500]}...\n"
-            "────────────────────────────────────\n"
-        )
+        presigned_url = generate_presigned_url(file_name, page_number)
+
+        snippet = f"""
+        <p>
+            <b>File:</b> <a href="{presigned_url}" target="_blank">{file_name} (Page {page_number})</a><br>
+            <b>Score:</b> {score:.4f}<br>
+            <b>Chunk:</b> {chunk_text[:500]}...
+        </p>
+        <hr>
+        """
         answers.append(snippet)
 
-    return "\n".join(answers), f"Found {len(answers)} chunks."
+    return f"""
+    <div style='
+        border: 1px solid #e5e7eb; 
+        padding: 10px; 
+        min-height: 80px; 
+        border-radius: 5px; 
+        font-family: Inter, sans-serif; 
+        font-size: 14px; 
+        color: #333; 
+        transition: background-color 0.2s ease-in-out;'
+        onmouseover="this.style.backgroundColor='#f9fafb';"
+        onmouseout="this.style.backgroundColor='transparent';"
+    >
+        {''.join(answers) if answers else 'No results found.'}
+    </div>
+    """, f"""
+    <div style='
+        border: 1px solid #e5e7eb; 
+        padding: 10px; 
+        min-height: 80px; 
+        border-radius: 5px; 
+        font-family: Inter, sans-serif; 
+        font-size: 14px; 
+        color: #333;'
+    >
+        Found {len(answers)} chunks.
+    </div>
+    """
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ─── NEW HELPER FUNCTION TO FETCH FILENAMES FROM /get_selected_filenames/ ───
 # ─────────────────────────────────────────────────────────────────────────────
 def fetch_selected_docs():
-    """
-    Calls our new FastAPI endpoint /get_selected_filenames
-    and returns a short message with the currently selected docs.
-    """
     try:
         response = requests.get("http://localhost:8000/get_selected_filenames/")
         data = response.json()
         filenames = data.get("selected_filenames", [])
+
         if not filenames:
-            return "No documents are currently selected."
-        joined = ", ".join(filenames)
-        return f"Currently selected docs: {joined}"
+            return """
+            <div style='
+                border: 1px solid #e5e7eb; 
+                padding: 10px; 
+                min-height: 80px; 
+                border-radius: 5px; 
+                font-family: Inter, sans-serif; 
+                font-size: 14px; 
+                color: #666;'
+            >No documents are currently selected.</div>
+            """
+
+        joined = "<br>".join(filenames)
+        return f"""
+        <div style='
+            border: 1px solid #e5e7eb; 
+            padding: 10px; 
+            min-height: 80px; 
+            border-radius: 5px; 
+            font-family: Inter, sans-serif; 
+            font-size: 14px; 
+            color: #333; 
+            transition: background-color 0.2s ease-in-out;'
+            onmouseover="this.style.backgroundColor='#f9fafb';"
+            onmouseout="this.style.backgroundColor='transparent';"
+        >
+            <b>Currently selected docs:</b><br>{joined}
+        </div>
+        """
     except Exception as e:
-        return f"Error retrieving selected docs: {e}"
+        return f"""
+        <div style='
+            border: 1px solid #e5e7eb; 
+            padding: 10px; 
+            min-height: 80px; 
+            border-radius: 5px; 
+            font-family: Inter, sans-serif; 
+            font-size: 14px; 
+            color: red;'
+        >Error retrieving selected docs: {e}</div>
+        """
+
 
 def build_gradio_interface():
     with gr.Blocks(title="ZRSVN RAG with Postgres & BGE-M3 Embeddings") as demo:
@@ -291,16 +387,36 @@ def build_gradio_interface():
         #  Row for the search results and status
         # ─────────────────────────────────────────────────────────────────
         with gr.Row():
-            output_area = gr.Textbox(
+            output_area = gr.HTML(
                 label="Search Results",
-                placeholder="Results will appear here.",
-                lines=15
+                value="""
+                <div style='
+                    border: 1px solid #e5e7eb; 
+                    padding: 10px; 
+                    min-height: 80px; 
+                    border-radius: 5px; 
+                    font-family: Inter, sans-serif; 
+                    font-size: 14px; 
+                    color: #666;'
+                >Results will appear here...</div>
+                """
             )
-            status_area = gr.Textbox(
+            status_area = gr.HTML(
                 label="Status",
-                placeholder="Status or summary.",
-                lines=2
+                value="""
+                <div style='
+                    border: 1px solid #e5e7eb; 
+                    padding: 10px; 
+                    min-height: 80px; 
+                    border-radius: 5px; 
+                    font-family: Inter, sans-serif; 
+                    font-size: 14px; 
+                    color: #666;'
+                >Status or summary.</div>
+                """
             )
+
+
 
         # Wire up the callbacks *after* the components exist:
         submit_button.click(
