@@ -18,8 +18,23 @@
     <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
 
     <style>
-        #map { height: 500px; border: 1px solid black; }
-        #output { margin-top: 10px; font-family: Arial, sans-serif; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      #map {
+        flex: 1;
+        width: 100%;
+      }
+      #output {
+        font-family: Arial, sans-serif;
+        padding: 10px;
+      }
     </style>
 </head>
 <body>
@@ -27,106 +42,135 @@
     <div id="output"></div>
 
     <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            // Initialize map
-            var map = L.map('map').setView([46.05, 14.5], 9);
-            
-            // Add OpenStreetMap tiles
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(map);
+    document.addEventListener("DOMContentLoaded", function() {
+        // Initialize map
+        var map = L.map('map').setView([46.05, 14.5], 9);
+        
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
 
-            // Initialize marker cluster group
-            var markerCluster = L.markerClusterGroup();
-            map.addLayer(markerCluster);
+        // Marker clustering
+        var markerCluster = L.markerClusterGroup();
+        map.addLayer(markerCluster);
 
-            // Fetch points from API
-            fetch("http://localhost:8000/get_all_points/")
-                .then(response => response.text())
-                .then(text => {
-                    console.log("📡 Received Data:", text);
-
-                    const lines = text.trim().split("\n");
-                    console.log(`📌 Number of points received: ${lines.length}`);
-
-                    lines.forEach(line => {
-                        try {
-                            let point = JSON.parse(line);
-                            
-                            if (point.type === "Point") {
-                                let coords = point.coordinates;
-
-                                // Add small jitter to prevent exact overlap
-                                let jitter = (Math.random() - 0.5) * 0.0005;
-
-                                let marker = L.circleMarker([coords[1] + jitter, coords[0] + jitter], {
-                                    radius: 2.5,
-                                    color: "red",
-                                    fillColor: "red",
-                                    fillOpacity: 0.7
-                                }).bindPopup(`Coordinates: ${coords[1]}, ${coords[0]}`);
-
-                                markerCluster.addLayer(marker);
-                            }
-                        } catch (error) {
-                            console.error("❌ JSON Parse Error:", error, "Data:", line);
+        // Fetch points from API
+        fetch("http://localhost:8000/get_all_points/")
+            .then(response => response.text())
+            .then(text => {
+                console.log("📡 Received Data:", text);
+                const lines = text.trim().split("\n");
+                console.log(`📌 Number of points received: ${lines.length}`);
+                lines.forEach(line => {
+                    try {
+                        let point = JSON.parse(line);
+                        if (point.type === "Point") {
+                            let coords = point.coordinates;
+                            let jitter = (Math.random() - 0.5) * 0.0005; // Avoid exact overlap
+                            let marker = L.circleMarker(
+                                [coords[1] + jitter, coords[0] + jitter],
+                                { radius: 2.5, color: "red", fillColor: "red", fillOpacity: 0.7 }
+                            ).bindPopup(`Coordinates: ${coords[1]}, ${coords[0]}`);
+                            markerCluster.addLayer(marker);
                         }
-                    });
-                })
-                .catch(error => console.error("❌ Fetch Error:", error));
+                    } catch (error) {
+                        console.error("❌ JSON Parse Error:", error, "Data:", line);
+                    }
+                });
+            })
+            .catch(error => console.error("❌ Fetch Error:", error));
 
-            // Leaflet Draw Tools
-            var drawnItems = new L.FeatureGroup();
-            map.addLayer(drawnItems);
+        // Leaflet Draw Tools
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
 
-            var drawControl = new L.Control.Draw({
-                draw: {
-                    polygon: false,
-                    polyline: false,
-                    circle: false,
-                    marker: false,
-                    circlemarker: false,
-                    rectangle: true
-                }
-            });
-
-            map.addControl(drawControl);
-
-            // Hide clusters when drawing starts
-            map.on('draw:drawstart', function () {
-                console.log("✏️ Drawing started - Hiding clusters");
-                map.removeLayer(markerCluster);
-                // 🔹 Automatically clear previous rectangle
-                drawnItems.clearLayers();
-            });
-
-            // Show clusters again when drawing stops
-            map.on('draw:drawstop', function () {
-                console.log("✅ Drawing stopped - Showing clusters");
-                map.addLayer(markerCluster);
-            });
-
-            // Handle area selection
-            map.on('draw:created', function (e) {
-                drawnItems.clearLayers();
-                var layer = e.layer;
-                drawnItems.addLayer(layer);
-
-                var bounds = layer.getBounds();
-                var minLat = bounds.getSouthWest().lat;
-                var minLon = bounds.getSouthWest().lng;
-                var maxLat = bounds.getNorthEast().lat;
-                var maxLon = bounds.getNorthEast().lng;
-
-                fetch(`http://localhost:8000/get_filenames/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        document.getElementById("output").innerHTML = 
-                            `<h3>Izbrani dokumenti:</h3> <pre>${JSON.stringify(data.selected_filenames, null, 2)}</pre>`;
-                    })
-                    .catch(error => console.error("Error:", error));
-            });
+        var drawControl = new L.Control.Draw({
+            draw: {
+                polygon: false,
+                polyline: false,
+                circle: false,
+                marker: false,
+                circlemarker: false,
+                rectangle: true
+            }
         });
+        map.addControl(drawControl);
+
+        /* ───────────────────────────────────────────────────────────── */
+        /* 1) CREATE A CUSTOM "CLEAR" BUTTON TO RESET DRAWINGS & DOCS   */
+        /* ───────────────────────────────────────────────────────────── */
+        var ClearControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-custom');
+
+                container.style.backgroundColor = 'white';
+                container.style.width = '30px';
+                container.style.height = '30px';
+                container.style.cursor = 'pointer';
+                container.style.display = 'flex';
+                container.style.alignItems = 'center';
+                container.style.justifyContent = 'center';
+                container.title = "Clear drawn rectangles and reset selected docs";
+
+                container.innerHTML = '🗑'; // Trash bin icon
+
+                L.DomEvent.disableClickPropagation(container);
+
+                container.onclick = function() {
+                    // 1. Clear the drawn rectangles
+                    drawnItems.clearLayers();
+
+                    // 2. Reset the selected documents on the backend
+                    fetch("http://localhost:8000/reset_selected_filenames/", { method: "POST" })
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log("📌 Selected files reset:", data.message);
+                        })
+                        .catch(error => console.error("❌ Error resetting selected files:", error));
+                };
+
+                return container;
+            }
+        });
+
+        // 2) Add the new ClearControl to the map
+        map.addControl(new ClearControl());
+
+        /* ───────────────────────────────────────────────────────────── */
+        /* Handle Map Events for Drawing                                */
+        /* ───────────────────────────────────────────────────────────── */
+        map.on('draw:drawstart', function () {
+            console.log("✏️ Drawing started - Hiding clusters");
+            map.removeLayer(markerCluster);
+            drawnItems.clearLayers();
+        });
+
+        map.on('draw:drawstop', function () {
+            console.log("✅ Drawing stopped - Showing clusters");
+            map.addLayer(markerCluster);
+        });
+
+        map.on('draw:created', function (e) {
+            drawnItems.clearLayers();
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+
+            var bounds = layer.getBounds();
+            var minLat = bounds.getSouthWest().lat;
+            var minLon = bounds.getSouthWest().lng;
+            var maxLat = bounds.getNorthEast().lat;
+            var maxLon = bounds.getNorthEast().lng;
+
+            fetch(`http://localhost:8000/get_filenames/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Selected files:", data.selected_filenames);
+                })
+                .catch(error => console.error("Error:", error));
+        });
+    });
     </script>
 </body>
 </html>
