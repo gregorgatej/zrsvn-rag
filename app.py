@@ -4,6 +4,10 @@ import gradio as gr
 import psycopg2
 import requests
 import boto3
+import openai
+import csv
+import time
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,8 +18,13 @@ from dotenv import load_dotenv
 # ─────────────────────────────────────────────────────────────────────────────
 # Local imports for our custom modules
 # ─────────────────────────────────────────────────────────────────────────────
-from model_handling import embedding_model  # The BGE-M3 model instance
-from query_handler import lexical_search_limited_scope, semantic_search_limited_scope, hybrid_search_limited_scope
+from model_handling import embedding_model  # The BGE-M3 model instance (if needed)
+from query_handler import (
+    lexical_search_limited_scope, 
+    semantic_search_limited_scope, 
+    hybrid_search_limited_scope
+)
+# (Optional) from query_handler import rewrite_query, handle_feedback  # if you move them out
 
 # Load environment variables for DB password
 load_dotenv()
@@ -81,7 +90,6 @@ def get_all_points():
 
     def generate():
         for row in cur.fetchall():
-            # row[0] is a GeoJSON string for the geometry
             yield json.dumps({
                 "type": "Point",
                 "coordinates": json.loads(row[0])["coordinates"]
@@ -116,16 +124,13 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
 
     # Clear old log results and insert the new set
     cur.execute("DELETE FROM selected_files_log;")
-    for filename in filenames:
-        cur.execute("INSERT INTO selected_files_log (filename) VALUES (%s);", (filename,))
+    for i in range(len(filenames)):
+        cur.execute("INSERT INTO selected_files_log (filename) VALUES (%s);", (filenames[i],))
     conn.commit()
 
     return {"selected_filenames": filenames}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ─── NEW ENDPOINT ADDED HERE: /get_selected_filenames/ ──────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 @app.get("/get_selected_filenames/")
 def get_selected_filenames():
     """
@@ -134,9 +139,11 @@ def get_selected_filenames():
     """
     cur.execute("SELECT filename FROM selected_files_log;")
     rows = cur.fetchall()
-    filenames = [row[0] for row in rows]
+    filenames = []
+    for row in rows:
+        filenames.append(row[0])
     return {"selected_filenames": filenames}
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 @app.post("/reset_selected_filenames/")
 def reset_selected_filenames():
@@ -144,11 +151,12 @@ def reset_selected_filenames():
     Clears all entries in the `selected_files_log` table, effectively resetting the selected document state.
     """
     try:
-        cur.execute("DELETE FROM selected_files_log;")  # Remove all selected docs
+        cur.execute("DELETE FROM selected_files_log;")
         conn.commit()
         return {"message": "Selected files reset."}
     except Exception as e:
         return {"error": f"Failed to reset selected files: {str(e)}"}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Mount "templates" directory for serving the static map
@@ -179,7 +187,131 @@ def generate_presigned_url(file_key, page_number):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gradio integration
+# REPLACE THE OLD CHATBOT IMPLEMENTATION WITH A STREAMING VERSION
+# ─────────────────────────────────────────────────────────────────────────────
+
+# For logging feedback
+feedback_csv = "custom_log.csv"
+if not os.path.exists(feedback_csv):
+    with open(feedback_csv, mode='w', newline='', encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Timestamp", "Chat History", "User Comment", "Index"])
+
+# Global variable to store chat history
+global_chat_history = []
+
+def rewrite_query(original_query):
+    """
+    Modify this function to implement your query rewriting logic.
+    For example: rewriting to Slovene, etc.
+    """
+    system_prompt = "Rewrite the following user query to Slovene:"
+
+    # Ensure your openai.api_key is set
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": original_query}
+        ],
+        temperature=0.3
+    )
+    return response.choices[0].message.content.strip()
+
+def predict(message, history):
+    """
+    Generate chatbot response in streaming mode, rewriting query first, 
+    then calling GPT-4o-mini with streaming on.
+    """
+    global global_chat_history
+
+    if history is None:
+        history = []
+
+    # Rewrite the query
+    rewritten_message = rewrite_query(message)
+
+    # Convert existing history to API-ready format
+    messages = []
+    for i in range(len(history)):
+        msg_role = history[i]["role"]
+        msg_content = history[i]["content"]
+        # We won't pass metadata/options to openai if not needed
+        messages.append({"role": msg_role, "content": msg_content})
+
+    # Append the rewritten user message
+    messages.append({"role": "user", "content": rewritten_message})
+
+    # Set the key again if needed
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    stream = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0.7,
+        stream=True
+    )
+
+    # We'll collect chunks in a list and yield partial output
+    chunks = []
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content or ""
+        chunks.append(delta)
+        full_response = "".join(chunks)
+        yield full_response
+        # small delay so that the user sees the streaming effect
+        time.sleep(0.05)
+
+    # Store final messages in global_chat_history
+    # Store the *original* user message too:
+    global_chat_history.append({
+        "role": "user",
+        "content": rewritten_message,
+        "original_content": message
+    })
+    global_chat_history.append({
+        "role": "assistant",
+        "content": "".join(chunks)
+    })
+
+def handle_feedback(comment):
+    """
+    Handle user feedback after a chat session. Saves to CSV.
+    """
+    global global_chat_history
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    # Prepare a cleaned version of the chat history for CSV
+    chat_history_cleaned = []
+    for i in range(len(global_chat_history)):
+        entry = global_chat_history[i]
+        newdict = {
+            "role": entry["role"],
+            "content": entry["content"]
+        }
+        if "original_content" in entry:
+            newdict["original_content"] = entry["original_content"]
+        chat_history_cleaned.append(newdict)
+
+    # Convert to JSON
+    chat_history_json = json.dumps(chat_history_cleaned, ensure_ascii=False)
+
+    # Index is just the last message index
+    last_index = max(0, len(global_chat_history) - 1)
+
+    # Append to CSV
+    with open(feedback_csv, mode='a', newline='', encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow([timestamp, chat_history_json, comment, last_index])
+
+    # Reset or update the placeholder
+    new_placeholder = "Povratna informacija uspešno zabeležena. Lahko vnesete novo mnenje ali komentar..."
+    return "", gr.update(placeholder=new_placeholder)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search logic (unchanged)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_search(query_text, search_method, k_results):
     if not query_text or not search_method:
@@ -208,16 +340,15 @@ def run_search(query_text, search_method, k_results):
         results = hybrid_search_limited_scope(query_text, k=k, db_params=db_params)
 
     answers = []
-    for result in results:
-        if search_method == "Lexical":
-            chunk_id, chunk_text, file_name, page_number, score = result
-        elif search_method == "Semantic":
-            chunk_id, chunk_text, file_name, page_number, score = result
+    for i in range(len(results)):
+        row = results[i]
+        # Depending on which search method was used, row might have a certain order
+        if search_method in ("Lexical", "Semantic"):
+            chunk_id, chunk_text, file_name, page_number, score = row
         else:
-            chunk_id, score, chunk_text, file_name, page_number = result
+            chunk_id, score, chunk_text, file_name, page_number = row
 
         presigned_url = generate_presigned_url(file_name, page_number)
-
         snippet = f"""
         <p>
             <b>File:</b> <a href="{presigned_url}" target="_blank">{file_name} (Page {page_number})</a><br>
@@ -239,7 +370,7 @@ def run_search(query_text, search_method, k_results):
         color: #333; 
         transition: background-color 0.2s ease-in-out;'
     >
-        {''.join(answers) if answers else 'No results found.'}
+        {''.join(answers) if len(answers) else 'No results found.'}
     </div>
     """, f"""
     <div style='
@@ -255,19 +386,17 @@ def run_search(query_text, search_method, k_results):
     </div>
     """
 
-
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ─── NEW HELPER FUNCTION TO FETCH FILENAMES FROM /get_selected_filenames/ ───
-# ─────────────────────────────────────────────────────────────────────────────
 def fetch_selected_docs():
+    """
+    GET request to /get_selected_filenames/ to see which docs are currently selected
+    via bounding-box in the DB.
+    """
     try:
         response = requests.get("http://localhost:8000/get_selected_filenames/")
         data = response.json()
         filenames = data.get("selected_filenames", [])
 
-        if not filenames:
+        if len(filenames) == 0:
             return """
             <div style='
                 border: 1px solid #e5e7eb; 
@@ -280,7 +409,11 @@ def fetch_selected_docs():
             >No documents are currently selected.</div>
             """
 
-        joined = "<br>".join(filenames)
+        # build an HTML with line breaks
+        joined = ""
+        for i in range(len(filenames)):
+            joined += filenames[i] + "<br>"
+
         return f"""
         <div style='
             border: 1px solid #e5e7eb; 
@@ -310,69 +443,53 @@ def fetch_selected_docs():
         >Error retrieving selected docs: {e}</div>
         """
 
-                         #Geografska zamejitev obsega iskanja.
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Build the Gradio interface
+# ─────────────────────────────────────────────────────────────────────────────
 def build_gradio_interface():
     with gr.Blocks(title="ZRSVN RAG with Postgres & BGE-M3 Embeddings") as demo:
         gr.Markdown("## Example RAG App with Leaflet Map + Postgres-based Searching")
 
-     # Apply custom CSS for consistent styling
-        demo.css = """
-            #query-input, #search-method, #results-slider {
-                font-family: Inter, sans-serif;
-                font-size: 14px;
-                border: 1px solid #e5e7eb;
-                border-radius: 5px;
-                padding: 8px;
-            }
+        # NEW streaming-based chat
+        gr.Markdown("## Chatbot z možnostjo povratne informacije")
+        chat = gr.ChatInterface(
+            fn=predict,
+            type="messages",
+            theme="ocean",
+            flagging_mode="manual",
+            #flagging_options=["Like", "Dislike", "Spam", "Inappropriate", "Other"],
+            flagging_dir="/mnt/partit1/projects/zrsvn-rag",
+            # you can supply any other ChatInterface parameters if needed
+        )
 
-            #query-input label, #search-method label, #results-slider label {
-                font-family: Inter, sans-serif;
-                font-size: 14px;
-                color: #666;
-                font-weight: 500;
-            }
+        feedback_box = gr.Textbox(
+            label="Povratna informacija", 
+            placeholder="Vnesite vaše mnenje ali komentar..."
+        )
+        feedback_button = gr.Button("Pošlji povratno informacijo")
 
-            #search-method label {
-                display: flex;
-                align-items: center;
-            }
+        # Clicking feedback will reset the feedback_box and update placeholder
+        feedback_button.click(
+            fn=handle_feedback,
+            inputs=[feedback_box],
+            outputs=[feedback_box, feedback_box]
+        )
 
-            #results-slider input {
-                border: 1px solid #e5e7eb;
-                border-radius: 5px;
-            }
+        gr.Markdown("---")
 
-            #search-btn, #show-docs-btn {
-                font-family: Inter, sans-serif;
-                font-size: 14px;
-                background-color: #f9fafb;
-                border: 1px solid #e5e7eb;
-                border-radius: 5px;
-                padding: 8px 12px;
-                transition: background-color 0.2s ease-in-out;
-            }
+        # The rest of your existing search UI:
+        gr.Markdown("### Iskanje po dokumentih (PostgreSQL + S3)")
 
-            #search-btn:hover, #show-docs-btn:hover {
-                background-color: #f3f4f6;
-            }
-        """
-
-
-        # Query input, search method, and results slider
         with gr.Row():
             query_box = gr.Textbox(
                 label="Enter your query",
                 placeholder="E.g., 'Environmental impact of project X?'",
-                #By commenting this out we keep the default title font etc. in place.
-                #elem_id="query-input",
             )
             search_method = gr.Radio(
                 choices=["Lexical", "Semantic", "Hybrid"],
                 value="Hybrid",
                 label="Search Method",
                 interactive=True,
-                #elem_id="search-method",
             )
             k_slider = gr.Slider(
                 minimum=1,
@@ -381,21 +498,11 @@ def build_gradio_interface():
                 step=1,
                 label="Number of Results",
                 interactive=True,
-                #elem_id="results-slider",
             )
 
-                         #Geografska zamejitev obsega iskanja.
-                        # The map is served at /map endpoint. We embed it via iframe
-        
         with gr.Accordion(
             label="Geographically determine scope of documents that are searched over",
             open=False):
-
-            # Title row: Scope title + Help button in the same row
-            #with gr.Row(equal_height=True):
-
-
-            # The map iframe (appears when the first accordion opens)
             gr.HTML("""
                 <style>
                     .map-container {
@@ -409,7 +516,6 @@ def build_gradio_interface():
                         transition: background-color 0.2s ease-in-out;
                         background-color: white; 
                     }
-
                     .map-container iframe {
                         flex: 1;
                         width: 100%;
@@ -420,25 +526,15 @@ def build_gradio_interface():
                         overflow: hidden;
                     }
                 </style>
-
                 <div class="map-container">
                     <iframe src="http://127.0.0.1:8000/map" scrolling="no"></iframe>
                 </div>
             """)
 
-
-        # Row for buttons
         with gr.Row():
-            submit_button = gr.Button(
-                "Search",
-                elem_id="search-btn",
-            )
-            show_docs_button = gr.Button(
-                "Show Selected Docs",
-                elem_id="show-docs-btn",
-            )
+            submit_button = gr.Button("Search")
+            show_docs_button = gr.Button("Show Selected Docs")
 
-        # Results output section
         with gr.Row():
             output_area = gr.HTML(
                 label="Search Results",
@@ -468,15 +564,14 @@ def build_gradio_interface():
                 >Status or summary.</div>
                 """
             )
-        
-        with gr.Accordion("📖 Navodila za uporabo", open=False):  
-                gr.Markdown("""
-                    By default, all documents are included in the search.
-                    By drawing a rectangle on the map, you can narrow down the search to include 
-                    only documents that are connected to a specific area.
-                """)
 
-        # Wire up the callbacks
+        with gr.Accordion("📖 Navodila za uporabo", open=False):
+            gr.Markdown("""
+                By default, all documents are included in the search.
+                By drawing a rectangle on the map, you can narrow down the search to include 
+                only documents that are connected to a specific area.
+            """)
+
         submit_button.click(
             fn=run_search,
             inputs=[query_box, search_method, k_slider],
@@ -492,13 +587,10 @@ def build_gradio_interface():
     return demo
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main entry - run Gradio app
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     interface = build_gradio_interface()
     interface.launch(
         server_name="0.0.0.0",
-        server_port=7860,  # or any port you prefer
+        server_port=7950,
         share=False
     )
