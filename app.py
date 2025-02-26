@@ -188,11 +188,25 @@ if not os.path.exists(feedback_csv):
 
 global_chat_history = []
 
+global_search_method = "Hybrid"
+
+global_k_context_items = 5
+
+def update_search_method(search_method):
+    global global_search_method
+    global_search_method=search_method
+
+def update_context_k(k):
+    global global_k_context_items
+    global_k_context_items=k
+
+#We leave query rewriting aside for now, as the used cgpt model is strong enough
+#to manage typos etc., while domain specific rewriting seems unnecessary at this stage.
 def rewrite_query(original_query):
     system_prompt = (
         "You are an advanced query rewriting assistant that refines user queries "
         "to improve clarity, retrieval effectiveness, and relevance while maintaining "
-        "the original intent and language."
+        "the original intent and language. Do this with the following user query:"
     )
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
@@ -205,19 +219,59 @@ def rewrite_query(original_query):
     )
     return response.choices[0].message.content.strip()
 
+def add_context(query):
+    _, results_list = run_search(query, global_search_method, global_k_context_items)
+
+    chunk_texts=[]
+    for item in results_list:
+        chunk_texts.append(item["chunk_text"])
+
+    context = "- " + "\n- ".join(chunk_texts)
+    base_prompt = (
+        "With your general knowledge and with the help of the following context items, please answer the query. "
+        "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+        "Don't return the thinking, only return the answer. "
+        "Make sure your answers are as explanatory as possible.\n\n"
+
+        "Context items:\n"
+        "{context}\n\n"
+
+        "User query: {query}\n\n"
+
+        "Answer:"
+    )
+    prompt_with_context = base_prompt.format(context=context, query=query)
+    print(prompt_with_context)
+    return prompt_with_context
+
 def predict(message, history):
     global global_chat_history
 
     if history is None:
         history = []
 
-    rewritten_message = rewrite_query(message)
+    #rewritten_query = rewrite_query(message)
 
-    messages = []
+    #For test purposes.
+    #print(f"Global k context: {global_k_context_items}, Global search method: {global_search_method}")
+
+    # message_with_context = add_context(rewritten_message, global_search_method, global_k_context_items)
+    query_with_context = add_context(message)
+
+    system_prompt = {
+    "role": "system",
+    "content": "You are an AI assistant that speaks in a funny way, like a clown that is overhyped about everything. You like to use multiple exclamation marks. Add the word 'PAŠTETA' at the end of each answer!"
+}
+
+    messages = [system_prompt]  # Start with system prompt
+
     for h in history:
         messages.append({"role": h["role"], "content": h["content"]})
 
-    messages.append({"role": "user", "content": rewritten_message})
+    messages.append({"role": "user", "content": message})
+
+    # Create a temporary messages list that includes the system prompt **only for this generation**
+    # messages_with_system_prompt = [system_prompt] + messages
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     stream = client.chat.completions.create(
@@ -238,7 +292,7 @@ def predict(message, history):
     # Save to global_chat_history
     global_chat_history.append({
         "role": "user",
-        "content": rewritten_message,
+        "content": message,
         "original_content": message
     })
     global_chat_history.append({
@@ -294,6 +348,7 @@ def run_search(query_text, search_method, k_results):
         return "No results found."
 
     answers = []
+    results_list = []
     file_nr = 1
 
     for row in results:
@@ -313,10 +368,24 @@ def run_search(query_text, search_method, k_results):
 
         answers.append(snippet)
 
+        result_dict = {
+            "file_number": file_nr,
+            "file_name": file_name,
+            "page_number": page_number,
+            "chunk_text": chunk_text,
+            "presigned_url": presigned_url,
+            "score": round(score, 4),
+            "snippet": f"File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})\nScore: {score:.4f}"
+        }
+
+        results_list.append(result_dict)
+
         file_nr += 1
 
+    markdown_answers = "\n".join(answers)
+
     # Join all snippet lines into Markdown
-    return "\n".join(answers)
+    return markdown_answers, results_list
 
 
 def fetch_selected_docs():
@@ -370,18 +439,21 @@ def build_gradio_interface():
             )
             search_method = gr.Radio(
                 choices=["Lexical", "Semantic", "Hybrid"],
-                value="Hybrid",
+                value=global_search_method,
                 label="Search Method",
                 interactive=True
             )
             k_slider = gr.Slider(
                 minimum=1,
                 maximum=15,
-                value=5,
+                value=global_k_context_items,
                 step=1,
                 label="Number of Results",
                 interactive=True
             )
+
+            search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
+            k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
 
         with gr.Accordion(label="Geographically determine scope of documents that are searched over", open=False):
             # The map iframe
@@ -432,7 +504,7 @@ def build_gradio_interface():
 
         # Connect search button -> run_search -> search_results_md
         search_btn.click(
-            fn=run_search,
+            fn=lambda query, method, k: run_search(query, method, k)[0],  # Extract only the first return value
             inputs=[query_box, search_method, k_slider],
             outputs=search_results_md
         )
