@@ -190,6 +190,122 @@ def generate_presigned_url(file_key, page_number):
 # REPLACE THE OLD CHATBOT IMPLEMENTATION WITH A STREAMING VERSION
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+
+def run_search(query_text, search_method, k_results):
+    """
+    Return a tuple with:
+    1. A Markdown string containing clickable links
+    2. A list of result dictionaries
+
+    Ensures that the function always returns exactly two values to prevent unpacking errors.
+    """
+    if not query_text or not search_method:
+        return "Please enter a query and select a search method.", []
+
+    try:
+        k = int(k_results)
+    except ValueError:
+        k = 5  # Default to 5 if conversion fails
+
+    if search_method == "Lexical":
+        results = lexical_search_limited_scope(query_text, k=k, db_params=db_params)
+    elif search_method == "Semantic":
+        results = semantic_search_limited_scope(query_text, k=k, db_params=db_params)
+    else:
+        results = hybrid_search_limited_scope(query_text, k=k, db_params=db_params)
+
+    if not results:
+        return "No results found.", []
+
+    answers = []
+    results_list = []
+    file_nr = 1
+
+    for row in results:
+        # Ensure row has the correct length before unpacking
+        if search_method in ("Lexical", "Semantic"):
+            if len(row) != 5:
+                continue  # Skip invalid results
+            chunk_id, chunk_text, file_name, page_number, score = row
+        else:
+            if len(row) != 5:
+                continue  # Skip invalid results
+            chunk_id, score, chunk_text, file_name, page_number = row
+
+        presigned_url = generate_presigned_url(file_name, page_number)
+
+        # Markdown with a clickable link:
+        snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
+        Score: {score:.4f}  
+        """
+
+        answers.append(snippet)
+
+        result_dict = {
+            "file_number": file_nr,
+            "file_name": file_name,
+            "page_number": page_number,
+            "chunk_text": chunk_text,
+            "presigned_url": presigned_url,
+            "score": round(score, 4),
+            "snippet": snippet
+        }
+
+        results_list.append(result_dict)
+        file_nr += 1
+
+    markdown_answers = "\n".join(answers)
+
+    # Ensure the function always returns two values
+    return markdown_answers, results_list
+
+
+def add_context(query):
+    """
+    Retrieves relevant context from `run_search` and formats it into a prompt.
+    
+    Ensures:
+    1. `run_search` returns the expected two values.
+    2. Proper error handling in case of unexpected return values.
+    """
+    search_result = run_search(query, global_search_method, global_k_context_items)
+
+    if not isinstance(search_result, tuple) or len(search_result) != 2:
+        raise ValueError(f"Unexpected return value from run_search: {search_result}")
+
+    _, results_list = search_result
+
+    if not isinstance(results_list, list):
+        raise ValueError(f"Expected list for results_list but got: {type(results_list)}")
+
+    chunk_texts = [item.get("chunk_text", "") for item in results_list if "chunk_text" in item]
+
+    context = "- " + "\n- ".join(chunk_texts) if chunk_texts else "No relevant context found."
+    
+    base_prompt = (
+        "With your general knowledge and with the help of the following context items, please answer the query. "
+        "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+        "Don't return the thinking, only return the answer. "
+        "Make sure your answers are as explanatory as possible.\n\n"
+
+        "Context items:\n"
+        "{context}\n\n"
+
+        "User query: {query}\n\n"
+
+        "Answer:"
+    )
+
+    prompt_with_context = base_prompt.format(context=context, query=query)
+    print(prompt_with_context)
+    return prompt_with_context
+
+
+
+
+
+
 # For logging feedback
 feedback_csv = "custom_log.csv"
 if not os.path.exists(feedback_csv):

@@ -220,13 +220,32 @@ def rewrite_query(original_query):
     return response.choices[0].message.content.strip()
 
 def add_context(query):
-    _, results_list = run_search(query, global_search_method, global_k_context_items)
+    """
+    Retrieves relevant context from `run_search` and formats it into a prompt.
+    
+    Ensures:
+    1. `run_search` returns the expected two values.
+    2. Proper error handling in case of unexpected return values.
+    """
+    search_result = run_search(query, global_search_method, global_k_context_items)
+
+    if not isinstance(search_result, tuple) or len(search_result) != 2:
+        raise ValueError(f"Unexpected return value from run_search: {search_result}")
+
+    _, results_list = search_result
+
+    if not isinstance(results_list, list):
+        raise ValueError(f"Expected list for results_list but got: {type(results_list)}")
 
     chunk_texts=[]
     for item in results_list:
         chunk_texts.append(item["chunk_text"])
 
-    context = "- " + "\n- ".join(chunk_texts)
+    if chunk_texts:
+        context = "- " + "\n- ".join(chunk_texts)
+    else:
+        context = "No relevant context found."
+
     base_prompt = (
         "With your general knowledge and with the help of the following context items, please answer the query. "
         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
@@ -327,10 +346,14 @@ def handle_feedback(comment):
 # ─────────────────────────────────────────────────────────────────────────────
 def run_search(query_text, search_method, k_results):
     """
-    Return a single Markdown string with clickable links (so we only have one output).
+    Return a tuple with:
+    1. A Markdown string containing clickable links
+    2. A list of result dictionaries
+
+    Ensures that the function always returns exactly two values to prevent unpacking errors.
     """
     if not query_text or not search_method:
-        return "Please enter a query and select a search method."
+        return "Please enter a query and select a search method.", []
 
     try:
         k = int(k_results)
@@ -351,12 +374,17 @@ def run_search(query_text, search_method, k_results):
     results_list = []
     file_nr = 1
 
-    for row in results:
         # For lexical/semantic: chunk_id, chunk_text, file_name, page_number, score
         # For hybrid: chunk_id, score, chunk_text, file_name, page_number
+    for row in results:
+        # Ensure row has the correct length before unpacking
         if search_method in ("Lexical", "Semantic"):
+            if len(row) != 5:
+                continue  # Skip invalid results
             chunk_id, chunk_text, file_name, page_number, score = row
         else:
+            if len(row) != 5:
+                continue  # Skip invalid results
             chunk_id, score, chunk_text, file_name, page_number = row
 
         presigned_url = generate_presigned_url(file_name, page_number)

@@ -2,10 +2,15 @@ import psycopg2
 import numpy as np
 from psycopg2.extensions import register_adapter, AsIs
 from pgvector.psycopg2 import register_vector
+import re
 
 # We import the embedding model instance from model_handling.
 # This is the BGE-M3 model loaded via FlagAutoModel.
 from model_handling import embedding_model
+
+def escape_special_chars(query):
+    """Escapes special characters for full-text search in ParadeDB/PostgreSQL so we don't receive ParseError when running lexical or hybrid search."""
+    return re.sub(r'([^\w\s])', r'\\\1', query)  # Escape all non-alphanumeric characters
 
 # Register numpy adapters so we can easily store/fetch arrays
 register_adapter(np.ndarray, lambda arr: AsIs(arr.tolist()))
@@ -28,6 +33,9 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
     conn = psycopg2.connect(**db_params)
     cursor = conn.cursor()
 
+    # Escape special characters
+    safe_query = escape_special_chars(query)
+
     search_query = """
         SELECT 
             c.id, 
@@ -43,7 +51,7 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
         LIMIT %s;
     """
 
-    cursor.execute(search_query, (query, k))
+    cursor.execute(search_query, (safe_query, k))
     results = cursor.fetchall()
 
     cursor.close()
@@ -128,6 +136,9 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     # The <=> operator is the pgvector distance operator. 
     # paradedb.score(c.id) is the BM25-like function for lexical ranking.
 
+    # Escape special characters
+    safe_query = escape_special_chars(query)
+
     search_query = """
         WITH bm25_candidates AS (
             SELECT c.id
@@ -175,7 +186,7 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
         LIMIT %s;
     """
 
-    cursor.execute(search_query, (query, lexical_k, query_embedding, semantic_k, query_embedding, k))
+    cursor.execute(search_query, (safe_query, lexical_k, query_embedding, semantic_k, query_embedding, k))
     results = cursor.fetchall()
 
     cursor.close()
