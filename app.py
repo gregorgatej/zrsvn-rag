@@ -200,6 +200,25 @@ def update_context_k(k):
     global global_k_context_items
     global_k_context_items=k
 
+# In place for possible future use if user feedback will problematise referals to chat history.
+# def check_query(original_query):
+#     system_prompt = (
+#         "You are an advanced query checking assistant that checks if user queries "
+#         "demand refering to the history of the chat or not. "
+#         "If yes, return 'True', if no, return 'False'. Do this for the following user query:"
+#     )
+#     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+#     response = client.chat.completions.create(
+#         model="gpt-4o-mini",
+#         messages=[
+#             {"role": "system", "content": system_prompt},
+#             {"role": "user", "content": original_query}
+#         ],
+#         temperature=0.3
+#     )
+#     return response.choices[0].message.content.strip()
+    
+
 #We leave query rewriting aside for now, as the used cgpt model is strong enough
 #to manage typos etc., while domain specific rewriting seems unnecessary at this stage.
 def rewrite_query(original_query):
@@ -246,19 +265,49 @@ def add_context(query):
     else:
         context = "No relevant context found."
 
+    # query_references_chat_history = check_query(query)
+
     base_prompt = (
         "With your general knowledge and with the help of the following context items, please answer the query. "
         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
         "Don't return the thinking, only return the answer. "
         "Make sure your answers are as explanatory as possible.\n\n"
-
         "Context items:\n"
         "{context}\n\n"
-
         "User query: {query}\n\n"
-
         "Answer:"
     )
+
+    # In place for possible future use if user feedback will problematise referals to chat history.
+    # if query_references_chat_history:
+    #     base_prompt = (
+    #         "With your general knowledge and with the help of the following context items, please answer the query. "
+    #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+    #         "Don't return the thinking, only return the answer. "
+    #         "Make sure your answers are as explanatory as possible.\n\n"
+
+    #         "Context items:\n"
+    #         "{context}\n\n"
+
+    #         "User query: {query}\n\n"
+
+    #         "Answer:"
+    #     )
+    # else:
+    #     base_prompt = (
+    #         "With your general knowledge and with the help of the following context items, please answer the query. "
+    #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+    #         "Don't return the thinking, only return the answer. "
+    #         "Make sure your answers are as explanatory as possible.\n\n"
+
+    #         "Context items:\n"
+    #         "{context}\n\n"
+
+    #         "User query: {query}\n\n"
+
+    #         "Answer:"
+    #     )
+
     prompt_with_context = base_prompt.format(context=context, query=query)
     print(prompt_with_context)
     return prompt_with_context
@@ -271,26 +320,34 @@ def predict(message, history):
 
     #rewritten_query = rewrite_query(message)
 
-    #For test purposes.
-    #print(f"Global k context: {global_k_context_items}, Global search method: {global_search_method}")
-
-    # message_with_context = add_context(rewritten_message, global_search_method, global_k_context_items)
     query_with_context = add_context(message)
 
-    system_prompt = {
-    "role": "system",
-    "content": "You are an AI assistant that speaks in a funny way, like a clown that is overhyped about everything. You like to use multiple exclamation marks. Add the word 'PAŠTETA' at the end of each answer!"
-}
+    # In place for possible future use if user feedback will problematise referals to chat history.
+    # system_prompt_content = """You are a helpful AI assistant. Your goal is to provide helpful, accurate, and safe responses to user queries. You have access to an external retrieval system to enhance your responses with relevant documents.
 
-    messages = [system_prompt]  # Start with system prompt
+    # - If retrieval results are available, prioritize incorporating relevant extracted information into your response.
+    # - Clearly differentiate between retrieved knowledge and your internal knowledge. Cite sources when applicable.
+    # - If retrieved documents do not contain relevant information, inform the user and fall back on your internal knowledge.
+    # - Do not hallucinate sources or fabricate references. If uncertain, state so explicitly.
+    # - If a user asks for real-time or external information, direct them to relevant sources or inform them that you do not have current data.
+    # - When responding, consider not only the retrieved context but also the broader conversation history and any relevant details from the ongoing interaction.
+    # - If the user’s query relates to prior messages in the conversation, incorporate relevant context from the chat history alongside retrieved information.
+    # - If there is ambiguity in whether the user is referring to retrieved content, chat history, or broader context, seek clarification before responding.
+    # """
+
+    # system_prompt = {
+    #     "role": "system",
+    #     "content": system_prompt_content
+    # }
+
+    # messages = [system_prompt]  # Start with system prompt
+    
+    messages = []
 
     for h in history:
         messages.append({"role": h["role"], "content": h["content"]})
 
-    messages.append({"role": "user", "content": message})
-
-    # Create a temporary messages list that includes the system prompt **only for this generation**
-    # messages_with_system_prompt = [system_prompt] + messages
+    messages.append({"role": "user", "content": query_with_context})
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     stream = client.chat.completions.create(
@@ -306,7 +363,7 @@ def predict(message, history):
         chunks.append(delta)
         full_response = "".join(chunks)
         yield full_response
-        time.sleep(0.05)
+        time.sleep(0.025)
 
     # Save to global_chat_history
     global_chat_history.append({
