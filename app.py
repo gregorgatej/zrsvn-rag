@@ -526,7 +526,7 @@ def build_gradio_interface():
             flagging_dir="/mnt/partit1/projects/zrsvn-rag",
         )
 
-        with gr.Accordion(label="Send feedback", open=False):
+        with gr.Accordion(label="✉️ Send feedback", open=False):
             feedback_box = gr.Textbox(
             label="Povratna informacija", 
             placeholder="Vnesite vaše mnenje ali komentar..."
@@ -534,7 +534,7 @@ def build_gradio_interface():
             feedback_button = gr.Button("Pošlji povratno informacijo")
             feedback_button.click(handle_feedback, inputs=[feedback_box], outputs=[feedback_box, feedback_box])
 
-        with gr.Accordion(label="Geographically determine scope of documents that are searched over and other search options", open=False):
+        with gr.Accordion(label="🌍 Geographically determine scope of documents that are searched over", open=False):
             # The map iframe
             # Geographically determine scope of documents that are searched over
             gr.HTML("""
@@ -572,7 +572,7 @@ def build_gradio_interface():
             # --- Search section ---
 
         
-        with gr.Accordion(label="Context settings", open=False):
+        with gr.Accordion(label="⚙️ Context settings", open=False):
             with gr.Row():
                 search_method = gr.Radio(
                     choices=["Lexical", "Semantic", "Hybrid"],
@@ -591,7 +591,7 @@ def build_gradio_interface():
                 search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
                 k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
 
-        with gr.Accordion(label="View context items", open=False):
+        with gr.Accordion(label="📝 View context items", open=False):
             search_results_md = gr.Markdown("Context items will appear here...", label="Search Results")
         
 
@@ -614,4 +614,4 @@ def build_gradio_interface():
 
 if __name__ == "__main__":
     interface = build_gradio_interface()
-    interface.launch(server_name="0.0.0.0", server_port=7950, share=False)
+    interface.launch(favicon_path="./assets/zrsvn_logo.png", server_name="0.0.0.0", server_port=7950, share=False)
