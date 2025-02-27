@@ -101,18 +101,28 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
     """
     GET endpoint that determines which files (in table 'files') fall within 
     the user-drawn bounding box. Then logs those filenames into 'selected_files_log'.
+    If no selection is made (on startup) or if no files are found in the selection, 
+    all files will be selected.
     """
-    query = """
-        SELECT DISTINCT f.file_name 
-        FROM files f
-        JOIN najdbe n ON f.id = n.files_id
-        WHERE ST_Within(
-            ST_Transform(n.wkb_geometry, 4326), 
-            ST_MakeEnvelope(%s, %s, %s, %s, 4326)
-        );
-    """
-    cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
-    results = cur.fetchall()
+    if None in (min_lat, max_lat, min_lon, max_lon):  # Case: App starts
+        cur.execute("SELECT file_name FROM files;")
+        results = cur.fetchall()
+    else:
+        query = """
+            SELECT DISTINCT f.file_name 
+            FROM files f
+            JOIN najdbe n ON f.id = n.files_id
+            WHERE ST_Within(
+                ST_Transform(n.wkb_geometry, 4326), 
+                ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+            );
+        """
+        cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
+        results = cur.fetchall()
+
+        if not results:  # Case: No files in the selected region
+            cur.execute("SELECT file_name FROM files;")
+            results = cur.fetchall()
     
     filenames = []
     for row in results:
@@ -125,7 +135,6 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
 
     return {"selected_filenames": filenames}
 
-
 @app.get("/get_selected_filenames/")
 def get_selected_filenames():
     """
@@ -135,7 +144,6 @@ def get_selected_filenames():
     rows = cur.fetchall()
     filenames = [row[0] for row in rows]
     return {"selected_filenames": filenames}
-
 
 @app.post("/reset_selected_filenames/")
 def reset_selected_filenames():
@@ -148,6 +156,20 @@ def reset_selected_filenames():
         return {"message": "Selected files reset."}
     except Exception as e:
         return {"error": f"Failed to reset selected files: {str(e)}"}
+    
+@app.post("/reset_to_all_files/")
+def reset_to_all_files():
+    """
+    Forcefully resets 'selected_files_log' so that all files from 'files'
+    become selected. This runs whenever the page is refreshed.
+    """
+    # Clear old selections
+    cur.execute("DELETE FROM selected_files_log;")
+    # Insert all files
+    cur.execute("INSERT INTO selected_files_log (filename) SELECT file_name FROM files;")
+    conn.commit()
+
+    return {"message": "Selection reset to all files."}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Mount templates directory for the Leaflet map
@@ -585,7 +607,7 @@ def build_gradio_interface():
                     maximum=15,
                     value=global_k_context_items,
                     step=1,
-                    label="Number of Results",
+                    label="Number of Context Items",
                     interactive=True
                 )
                 search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])

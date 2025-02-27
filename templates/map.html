@@ -55,6 +55,16 @@
         var markerCluster = L.markerClusterGroup();
         map.addLayer(markerCluster);
 
+        // Force selection of all files on page load/refresh:
+        fetch("http://localhost:8000/reset_to_all_files/", {
+            method: "POST"
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log("✅ reset_to_all_files:", data.message);
+        })
+        .catch(error => console.error("❌ Error resetting to all files:", error));
+
         // Fetch points from API
         fetch("http://localhost:8000/get_all_points/")
             .then(response => response.text())
@@ -122,13 +132,23 @@
                     // 1. Clear the drawn rectangles
                     drawnItems.clearLayers();
 
-                    // 2. Reset the selected documents on the backend
-                    fetch("http://localhost:8000/reset_selected_filenames/", { method: "POST" })
+                    // 2. Call reset_to_all_files so we again have everything selected
+                    fetch("http://localhost:8000/reset_to_all_files/", { method: "POST" })
                         .then(response => response.json())
                         .then(data => {
-                            console.log("📌 Selected files reset:", data.message);
+                            console.log("✅ Clear button reset:", data.message);
                         })
-                        .catch(error => console.error("❌ Error resetting selected files:", error));
+                        .catch(error => console.error("❌ Error resetting on clear:", error));
+
+                    // We are currently ommiting this since we are opting for all files
+                    // being chosen when no rectangles are drawn.
+                    // 3. Reset the selected documents on the backend
+                    // fetch("http://localhost:8000/reset_selected_filenames/", { method: "POST" })
+                    //     .then(response => response.json())
+                    //     .then(data => {
+                    //         console.log("📌 Selected files reset:", data.message);
+                    //     })
+                    //     .catch(error => console.error("❌ Error resetting selected files:", error));
                 };
 
                 return container;
