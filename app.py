@@ -513,12 +513,12 @@ def fetch_selected_docs():
 # Build the Gradio interface
 # ─────────────────────────────────────────────────────────────────────────────
 def build_gradio_interface():
-    with gr.Blocks(title="ZRSVN RAG with Postgres & BGE-M3 Embeddings") as demo:
-        gr.Markdown("## Example RAG App with Leaflet Map + Postgres-based Searching")
+    with gr.Blocks(title="ZRSVN RAG") as demo:
 
-        # --- Chat section ---
-        gr.Markdown("## Chatbot z možnostjo povratne informacije")
+        gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">Chatbot z možnostjo povratne informacije</div>')
+
         chat = gr.ChatInterface(
+            chatbot=gr.Chatbot(placeholder="<strong>Kaj vas tokrat zanima o monitoringih?</strong><br>Vprašanje vnesite v spodnjo vrstico."),
             fn=predict,
             type="messages",
             theme="ocean",
@@ -526,43 +526,17 @@ def build_gradio_interface():
             flagging_dir="/mnt/partit1/projects/zrsvn-rag",
         )
 
-        feedback_box = gr.Textbox(
+        with gr.Accordion(label="Send feedback", open=False):
+            feedback_box = gr.Textbox(
             label="Povratna informacija", 
             placeholder="Vnesite vaše mnenje ali komentar..."
-        )
-        feedback_button = gr.Button("Pošlji povratno informacijo")
-        feedback_button.click(handle_feedback, inputs=[feedback_box], outputs=[feedback_box, feedback_box])
-
-        gr.Markdown("---")
-
-        # --- Search section ---
-        gr.Markdown("### Iskanje po dokumentih (PostgreSQL + S3)")
-
-        with gr.Row():
-            query_box = gr.Textbox(
-                label="Enter your query",
-                placeholder="e.g. 'Environmental impact of project X?'"
             )
-            search_method = gr.Radio(
-                choices=["Lexical", "Semantic", "Hybrid"],
-                value=global_search_method,
-                label="Search Method",
-                interactive=True
-            )
-            k_slider = gr.Slider(
-                minimum=0,
-                maximum=15,
-                value=global_k_context_items,
-                step=1,
-                label="Number of Results",
-                interactive=True
-            )
+            feedback_button = gr.Button("Pošlji povratno informacijo")
+            feedback_button.click(handle_feedback, inputs=[feedback_box], outputs=[feedback_box, feedback_box])
 
-            search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
-            k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
-
-        with gr.Accordion(label="Geographically determine scope of documents that are searched over", open=False):
+        with gr.Accordion(label="Geographically determine scope of documents that are searched over and other search options", open=False):
             # The map iframe
+            # Geographically determine scope of documents that are searched over
             gr.HTML("""
                 <style>
                     .map-container {
@@ -595,11 +569,31 @@ def build_gradio_interface():
             docs_text = gr.Markdown("Currently selected docs: 0")
             show_docs_button.click(fetch_selected_docs, inputs=[], outputs=docs_text)
 
-        # The button to trigger search
-        search_btn = gr.Button("Search")
+            # --- Search section ---
 
-        # Single Markdown area for results (renders links nicely)
-        search_results_md = gr.Markdown("Results will appear here...", label="Search Results")
+        
+        with gr.Accordion(label="Context settings", open=False):
+            with gr.Row():
+                search_method = gr.Radio(
+                    choices=["Lexical", "Semantic", "Hybrid"],
+                    value=global_search_method,
+                    label="Search Method",
+                    interactive=True
+                )
+                k_slider = gr.Slider(
+                    minimum=0,
+                    maximum=15,
+                    value=global_k_context_items,
+                    step=1,
+                    label="Number of Results",
+                    interactive=True
+                )
+                search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
+                k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
+
+        with gr.Accordion(label="View context items", open=False):
+            search_results_md = gr.Markdown("Context items will appear here...", label="Search Results")
+        
 
         with gr.Accordion("📖 Navodila za uporabo", open=False):
             gr.Markdown("""
@@ -609,11 +603,11 @@ def build_gradio_interface():
             """)
 
         # Connect search button -> run_search -> search_results_md
-        search_btn.click(
-            fn=lambda query, method, k: run_search(query, method, k)[0],  # Extract only the first return value
-            inputs=[query_box, search_method, k_slider],
-            outputs=search_results_md
-        )
+        # search_btn.click(
+        #     fn=lambda query, method, k: run_search(query, method, k)[0],  # Extract only the first return value
+        #     inputs=[query_box, search_method, k_slider],
+        #     outputs=search_results_md
+        # )
 
     return demo
 
