@@ -335,14 +335,13 @@ def predict(message, history):
     # - If there is ambiguity in whether the user is referring to retrieved content, chat history, or broader context, seek clarification before responding.
     # """
 
-    # system_prompt = {
-    #     "role": "system",
-    #     "content": system_prompt_content
-    # }
-
-    # messages = [system_prompt]  # Start with system prompt
-    
-    messages = []
+    system_prompt_content = """You are a helpful AI assistant. Always respond in Slovenian unless the context clearly requires another language for better understanding or relevance."""
+    system_prompt = {
+        "role": "system",
+        "content": system_prompt_content
+    }
+    messages = [system_prompt]  # Start with system prompt
+    # messages = []
 
     for h in history:
         messages.append({"role": h["role"], "content": h["content"]})
@@ -358,23 +357,42 @@ def predict(message, history):
     )
 
     chunks = []
-    for chunk in stream:
-        delta = chunk.choices[0].delta.content or ""
-        chunks.append(delta)
-        full_response = "".join(chunks)
-        yield full_response
-        time.sleep(0.025)
 
-    # Save to global_chat_history
+    # Log user input first
     global_chat_history.append({
         "role": "user",
         "content": message,
         "original_content": message
     })
+
+    # Append an empty assistant response, to be filled incrementally
     global_chat_history.append({
-        "role": "assistant",
-        "content": "".join(chunks)
+        "role": "assistant", 
+        "content": ""
     })
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content or ""
+        chunks.append(delta)
+
+        # Update last assistant message incrementally
+        global_chat_history[-1]["content"] += delta
+
+        full_response = "".join(chunks)
+        yield full_response
+        time.sleep(0.025)
+
+    # # Save user input and then assistant input to global_chat_history
+    # global_chat_history.append({
+    #     "role": "user",
+    #     "content": message,
+    #     "original_content": message
+    # })
+
+    # global_chat_history.append({
+    #     "role": "assistant",
+    #     "content": "".join(chunks)
+    # })
 
 def handle_feedback(comment):
     global global_chat_history
