@@ -255,6 +255,9 @@ def add_context(query):
 
     if not isinstance(results_list, list):
         raise ValueError(f"Expected list for results_list but got: {type(results_list)}")
+    
+    if not results_list:
+        return "No relevant context items found."
 
     chunk_texts=[]
     for item in results_list:
@@ -443,7 +446,7 @@ def run_search(query_text, search_method, k_results):
         results = hybrid_search_limited_scope(query_text, k=k, db_params=db_params)
 
     if not results:
-        return "No results found."
+        return "No results found.", []
 
     answers = []
     results_list = []
@@ -547,7 +550,7 @@ def build_gradio_interface():
                 interactive=True
             )
             k_slider = gr.Slider(
-                minimum=1,
+                minimum=0,
                 maximum=15,
                 value=global_k_context_items,
                 step=1,
