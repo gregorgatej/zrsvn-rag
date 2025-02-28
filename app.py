@@ -494,15 +494,15 @@ def run_search(query_text, search_method, k_results):
     for row in results:
         # Ensure row has the correct length before unpacking
         if search_method in ("Lexical", "Semantic"):
-            if len(row) != 5:
+            if len(row) != 6:
                 continue  # Skip invalid results
-            chunk_id, chunk_text, file_name, page_number, score = row
+            chunk_id, chunk_text, file_name, s3_link, page_number, score = row
         else:
-            if len(row) != 5:
+            if len(row) != 6:
                 continue  # Skip invalid results
-            chunk_id, score, chunk_text, file_name, page_number = row
+            chunk_id, score, chunk_text, file_name, s3_link, page_number = row
 
-        presigned_url = generate_presigned_url(file_name, page_number)
+        presigned_url = generate_presigned_url(s3_link, page_number)
 
         # Markdown with a clickable link:
         snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
@@ -514,6 +514,7 @@ def run_search(query_text, search_method, k_results):
         result_dict = {
             "file_number": file_nr,
             "file_name": file_name,
+            "s3_link": s3_link,
             "page_number": page_number,
             "chunk_text": chunk_text,
             "presigned_url": presigned_url,
@@ -606,9 +607,9 @@ def build_gradio_interface():
                 </div>
             """)
             # Button to update the count
-            show_docs_button = gr.Button("Click to update number of currently selected docs")
+            show_docs_button = gr.Button("Click to see updated number of currently selected docs")
             # Markdown for displaying the doc count
-            docs_text = gr.Markdown("Currently selected docs: 0")
+            docs_text = gr.Markdown()
             show_docs_button.click(fetch_selected_docs, inputs=[], outputs=docs_text)
 
             # --- Search section ---

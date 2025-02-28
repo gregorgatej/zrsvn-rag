@@ -41,6 +41,7 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
             c.id, 
             c.chunk_text, 
             f.file_name,
+            f.s3_link,
             c.page_number, 
             paradedb.score(c.id) AS score
         FROM chunks c
@@ -87,6 +88,7 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
             c.id, 
             c.chunk_text, 
             f.file_name,
+            f.s3_link,
             c.page_number, 
             1 - (e.vector <=> %s) AS score
         FROM embeddings e
@@ -177,6 +179,7 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
             COALESCE(1.0 / (60 + sr.rank), 0) + COALESCE(1.0 / (60 + br.rank), 0) AS score,
             c.chunk_text,
             f.file_name,
+            f.s3_link,
             c.page_number
         FROM semantic_ranked sr
         FULL OUTER JOIN bm25_ranked br ON sr.id = br.id
