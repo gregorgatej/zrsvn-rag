@@ -299,6 +299,7 @@ def add_context(query):
 
     prompt_with_context = base_prompt.format(context=context, query=query)
     print(prompt_with_context)
+    
     return prompt_with_context
 
 

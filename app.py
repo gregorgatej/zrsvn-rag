@@ -268,74 +268,85 @@ def add_context(query):
     1. `run_search` returns the expected two values.
     2. Proper error handling in case of unexpected return values.
     """
-    search_result = run_search(query, global_search_method, global_k_context_items)
 
-    if not isinstance(search_result, tuple) or len(search_result) != 2:
-        raise ValueError(f"Unexpected return value from run_search: {search_result}")
+    #We check if global_k_context_items is equal to 0. If yes,
+    #we bypass running search_result and set results_md to "To display context items the 'Number of context items' should be set to bigger then zero."
+    #and prompt_with_context to "ZERO_K"
+    #If not, we continue with the rest of the code.
 
-    _, results_list = search_result
-
-    if not isinstance(results_list, list):
-        raise ValueError(f"Expected list for results_list but got: {type(results_list)}")
-    
-    if not results_list:
-        return "No relevant context items found."
-
-    chunk_texts=[]
-    for item in results_list:
-        chunk_texts.append(item["chunk_text"])
-
-    if chunk_texts:
-        context = "- " + "\n- ".join(chunk_texts)
+    if global_k_context_items == 0:
+        return "To display context items the 'Number of context items' should be set to bigger then zero.", "ZERO_K"
     else:
-        context = "No relevant context found."
+    
+        search_result = run_search(query, global_search_method, global_k_context_items)
 
-    # query_references_chat_history = check_query(query)
+        if not isinstance(search_result, tuple) or len(search_result) != 2:
+            raise ValueError(f"Unexpected return value from run_search: {search_result}")
 
-    base_prompt = (
-        "With your general knowledge and with the help of the following context items, please answer the query. "
-        "Give yourself room to think by extracting relevant passages from the context before answering the query. "
-        "Don't return the thinking, only return the answer. "
-        "Make sure your answers are as explanatory as possible.\n\n"
-        "Context items:\n"
-        "{context}\n\n"
-        "User query: {query}\n\n"
-        "Answer:"
-    )
+        results_md, results_list = search_result
 
-    # In place for possible future use if user feedback will problematise referals to chat history.
-    # if query_references_chat_history:
-    #     base_prompt = (
-    #         "With your general knowledge and with the help of the following context items, please answer the query. "
-    #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
-    #         "Don't return the thinking, only return the answer. "
-    #         "Make sure your answers are as explanatory as possible.\n\n"
+        if not isinstance(results_list, list):
+            raise ValueError(f"Expected list for results_list but got: {type(results_list)}")
 
-    #         "Context items:\n"
-    #         "{context}\n\n"
+        # if not results_list:
+        #     return "No relevant context found."
 
-    #         "User query: {query}\n\n"
+        chunk_texts=[]
+        for item in results_list:
+            chunk_texts.append(item["chunk_text"])
 
-    #         "Answer:"
-    #     )
-    # else:
-    #     base_prompt = (
-    #         "With your general knowledge and with the help of the following context items, please answer the query. "
-    #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
-    #         "Don't return the thinking, only return the answer. "
-    #         "Make sure your answers are as explanatory as possible.\n\n"
+        if chunk_texts:
+            context = "- " + "\n- ".join(chunk_texts)
+        else:
+            context = "No relevant context items found."
 
-    #         "Context items:\n"
-    #         "{context}\n\n"
+        # query_references_chat_history = check_query(query)
 
-    #         "User query: {query}\n\n"
+        base_prompt = (
+            "With your general knowledge and with the help of the following context items, please answer the query. "
+            "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+            "Don't return the thinking, only return the answer. "
+            "Make sure your answers are as explanatory as possible.\n\n"
+            "Context items:\n"
+            "{context}\n\n"
+            "User query: {query}\n\n"
+            "Answer:"
+        )
 
-    #         "Answer:"
-    #     )
+        # In place for possible future use if user feedback will problematise referals to chat history.
+        # if query_references_chat_history:
+        #     base_prompt = (
+        #         "With your general knowledge and with the help of the following context items, please answer the query. "
+        #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+        #         "Don't return the thinking, only return the answer. "
+        #         "Make sure your answers are as explanatory as possible.\n\n"
 
-    prompt_with_context = base_prompt.format(context=context, query=query)
-    print(prompt_with_context)
-    return prompt_with_context
+        #         "Context items:\n"
+        #         "{context}\n\n"
+
+        #         "User query: {query}\n\n"
+
+        #         "Answer:"
+        #     )
+        # else:
+        #     base_prompt = (
+        #         "With your general knowledge and with the help of the following context items, please answer the query. "
+        #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
+        #         "Don't return the thinking, only return the answer. "
+        #         "Make sure your answers are as explanatory as possible.\n\n"
+
+        #         "Context items:\n"
+        #         "{context}\n\n"
+
+        #         "User query: {query}\n\n"
+
+        #         "Answer:"
+        #     )
+
+        prompt_with_context = base_prompt.format(context=context, query=query)
+        print(prompt_with_context)
+
+        return results_md, prompt_with_context
 
 def predict(message, history):
     global global_chat_history
@@ -345,7 +356,7 @@ def predict(message, history):
 
     #rewritten_query = rewrite_query(message)
 
-    query_with_context = add_context(message)
+    results_md, query_with_context = add_context(message)
 
     # In place for possible future use if user feedback will problematise referals to chat history.
     # system_prompt_content = """You are a helpful AI assistant. Your goal is to provide helpful, accurate, and safe responses to user queries. You have access to an external retrieval system to enhance your responses with relevant documents.
@@ -371,7 +382,10 @@ def predict(message, history):
     for h in history:
         messages.append({"role": h["role"], "content": h["content"]})
 
-    messages.append({"role": "user", "content": query_with_context})
+    if query_with_context != "ZERO_K":
+        messages.append({"role": "user", "content": query_with_context})
+    else:
+        messages.append({"role": "user", "content": message})
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     stream = client.chat.completions.create(
@@ -404,7 +418,7 @@ def predict(message, history):
         global_chat_history[-1]["content"] += delta
 
         full_response = "".join(chunks)
-        yield full_response
+        yield full_response, results_md
         time.sleep(0.025)
 
     # # Save user input and then assistant input to global_chat_history
@@ -468,7 +482,8 @@ def run_search(query_text, search_method, k_results):
         results = hybrid_search_limited_scope(query_text, k=k, db_params=db_params)
 
     if not results:
-        return "No results found.", []
+        # return "No results found.", []
+        return "No context items could be displayed. Please refine your question.", []
 
     answers = []
     results_list = []
@@ -539,6 +554,10 @@ def build_gradio_interface():
 
         gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">Chatbot z možnostjo povratne informacije</div>')
 
+        # We define search_results beforehand so that the md formatted additional output from ChatInterface/predict can be passed to it,
+        # but we do not yet render it.
+        search_results_md = gr.Markdown("Context items will appear here...", label="Search Results", render=False)
+
         chat = gr.ChatInterface(
             chatbot=gr.Chatbot(placeholder="<strong>Kaj vas tokrat zanima o monitoringih?</strong><br>Vprašanje vnesite v spodnjo vrstico."),
             fn=predict,
@@ -546,6 +565,7 @@ def build_gradio_interface():
             theme="ocean",
             flagging_mode="manual",
             flagging_dir="/mnt/partit1/projects/zrsvn-rag",
+            additional_outputs=[search_results_md]
         )
 
         with gr.Accordion(label="✉️ Send feedback", open=False):
@@ -613,8 +633,9 @@ def build_gradio_interface():
                 search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
                 k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
 
+        # We render the md formatted result.
         with gr.Accordion(label="📝 View context items", open=False):
-            search_results_md = gr.Markdown("Context items will appear here...", label="Search Results")
+            search_results_md.render()
         
 
         with gr.Accordion("📖 Navodila za uporabo", open=False):
