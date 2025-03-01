@@ -188,6 +188,10 @@ def generate_presigned_url(file_key, page_number):
     """
     Generates a presigned URL to access a specific file, appending a page anchor.
     """
+
+    if file_key is None:
+        return None  # No presigned URL for missing S3 link
+
     try:
         presigned_url = s3_client.generate_presigned_url(
             'get_object',
@@ -196,7 +200,8 @@ def generate_presigned_url(file_key, page_number):
         )
         return f"{presigned_url}#page={page_number}"
     except Exception as e:
-        return f"Error generating link: {e}"
+        print(f"Error generating link: {e}")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -504,10 +509,15 @@ def run_search(query_text, search_method, k_results):
 
         presigned_url = generate_presigned_url(s3_link, page_number)
 
-        # Markdown with a clickable link:
-        snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
-        Score: {score:.4f}  
-        """
+        if presigned_url:
+            # Markdown with a clickable link:
+            snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
+            Score: {score:.4f}  
+            """
+        else:
+            snippet = f"""File nr. {file_nr}: {file_name} (page {page_number})  
+            Score: {score:.4f}  
+            """  # No hyperlink if S3 link is missing
 
         answers.append(snippet)
 
@@ -517,9 +527,9 @@ def run_search(query_text, search_method, k_results):
             "s3_link": s3_link,
             "page_number": page_number,
             "chunk_text": chunk_text,
-            "presigned_url": presigned_url,
+            "presigned_url": presigned_url if presigned_url else "",
             "score": round(score, 4),
-            "snippet": f"File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})\nScore: {score:.4f}"
+            "snippet": snippet
         }
 
         results_list.append(result_dict)
