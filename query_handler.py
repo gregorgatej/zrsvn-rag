@@ -3,6 +3,10 @@ import numpy as np
 from psycopg2.extensions import register_adapter, AsIs
 from pgvector.psycopg2 import register_vector
 import re
+import logfire
+
+logfire.configure()
+logfire.instrument_psycopg()
 
 # We import the embedding model instance from model_handling.
 # This is the BGE-M3 model loaded via FlagAutoModel.

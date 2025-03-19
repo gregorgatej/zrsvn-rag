@@ -7,6 +7,7 @@ import boto3
 import openai
 import csv
 import time
+import logfire
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -84,17 +85,36 @@ def get_all_points():
         SELECT ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326)) AS geom
         FROM najdbe;
     """
-    cur.execute(query)
 
-    def generate():
-        for row in cur.fetchall():
-            yield json.dumps({
-                "type": "Point",
-                "coordinates": json.loads(row[0])["coordinates"]
-            }) + "\n"
+    try:
+        # Open a new cursor for this function call
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            results = cursor.fetchall()
 
-    return StreamingResponse(generate(), media_type="application/json")
+            if not results:
+                print("[DEBUG] Query executed, but no results were returned.")
+                return {"message": "No points found in the database."}
 
+            def generate():
+                for row in results:
+                    if row[0]:  # Check if row contains valid GeoJSON
+                        yield json.dumps({
+                            "type": "Point",
+                            "coordinates": json.loads(row[0])["coordinates"]
+                        }) + "\n"
+
+            return StreamingResponse(generate(), media_type="application/json")
+
+    except psycopg2.ProgrammingError as e:
+        print(f"[ERROR] Database query failed: {e}")
+        conn.rollback()  # Roll back in case of an error
+        return {"error": f"Database query failed: {str(e)}"}
+
+    except psycopg2.Error as e:
+        print(f"[ERROR] General database error: {e}")
+        conn.rollback()  # Roll back in case of an error
+        return {"error": f"General database error: {str(e)}"}
 
 @app.get("/get_filenames/")
 def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float):
@@ -393,6 +413,10 @@ def predict(message, history):
         messages.append({"role": "user", "content": message})
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    logfire.configure()
+    logfire.instrument_openai(client)
+
     stream = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages,
@@ -472,7 +496,8 @@ def run_search(query_text, search_method, k_results):
     Ensures that the function always returns exactly two values to prevent unpacking errors.
     """
     if not query_text or not search_method:
-        return "Please enter a query and select a search method.", []
+        # return "Please enter a query and select a search method.", []
+        return "Vnesite poizvedbo in izberite način iskanja.", []
 
     try:
         k = int(k_results)
@@ -488,7 +513,8 @@ def run_search(query_text, search_method, k_results):
 
     if not results:
         # return "No results found.", []
-        return "No context items could be displayed. Please refine your question.", []
+        # return "No context items could be displayed. Please refine your question.", []
+        return "Iskanje ni vrnilo nobenih kontekstualnih elementov. Poskusite znova, z drugačnim vprašanjem.", []
 
     answers = []
     results_list = []
@@ -551,10 +577,12 @@ def fetch_selected_docs():
         data = response.json()
         filenames = data.get("selected_filenames", [])
         nr_docs = len(filenames)
-        return f"Currently selected docs: {nr_docs}"
+        # return f"Currently selected docs: {nr_docs}"
+        return f"Trenutno izbrani dokumenti: {nr_docs}"
 
     except Exception as e:
-        return f"Error retrieving selected docs: {e}"
+        # return f"Error retrieving selected docs: {e}"
+        return f"Napaka pri pridobivanju izbranih dokumentov: {e}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -563,11 +591,12 @@ def fetch_selected_docs():
 def build_gradio_interface():
     with gr.Blocks(title="ZRSVN RAG") as demo:
 
-        gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">Chatbot z možnostjo povratne informacije</div>')
+        gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">ZRSVN RAG</div>')
 
         # We define search_results beforehand so that the md formatted additional output from ChatInterface/predict can be passed to it,
         # but we do not yet render it.
-        search_results_md = gr.Markdown("Context items will appear here...", label="Search Results", render=False)
+        # search_results_md = gr.Markdown("Context items will appear here...", label="Search Results", render=False)
+        search_results_md = gr.Markdown("Tu se bodo pojavili elementi, ki predstavljajo kontekst pri pripravi odgovora...", label="Rezultati iskanja", render=False)
 
         chat = gr.ChatInterface(
             chatbot=gr.Chatbot(placeholder="<strong>Kaj vas tokrat zanima o monitoringih?</strong><br>Vprašanje vnesite v spodnjo vrstico."),
@@ -579,15 +608,17 @@ def build_gradio_interface():
             additional_outputs=[search_results_md]
         )
 
-        with gr.Accordion(label="✉️ Send feedback", open=False):
+        # with gr.Accordion(label="✉️ Send feedback", open=False):
+        with gr.Accordion(label="✉️ Pošlji povratne informacije", open=False):
             feedback_box = gr.Textbox(
             label="Povratna informacija", 
             placeholder="Vnesite vaše mnenje ali komentar..."
             )
-            feedback_button = gr.Button("Pošlji povratno informacijo")
+            feedback_button = gr.Button("Pošlji")
             feedback_button.click(handle_feedback, inputs=[feedback_box], outputs=[feedback_box, feedback_box])
 
-        with gr.Accordion(label="🌍 Geographically determine scope of documents that are searched over", open=False):
+        # with gr.Accordion(label="🌍 Geographically determine scope of documents that are searched over", open=False):
+        with gr.Accordion(label="🌍 Geografsko določite obseg dokumentov, vključenih v iskanje", open=False):
             # The map iframe
             # Geographically determine scope of documents that are searched over
             gr.HTML("""
@@ -617,7 +648,8 @@ def build_gradio_interface():
                 </div>
             """)
             # Button to update the count
-            show_docs_button = gr.Button("Click to see updated number of currently selected docs")
+            # show_docs_button = gr.Button("Click to see updated number of currently selected docs")
+            show_docs_button = gr.Button("Klikni za posodobitev prikaza št. trenutno izbranih dokumentov")
             # Markdown for displaying the doc count
             docs_text = gr.Markdown()
             show_docs_button.click(fetch_selected_docs, inputs=[], outputs=docs_text)
@@ -625,12 +657,15 @@ def build_gradio_interface():
             # --- Search section ---
 
         
-        with gr.Accordion(label="⚙️ Context settings", open=False):
+        # with gr.Accordion(label="⚙️ Context settings", open=False):
+        with gr.Accordion(label="⚙️ Nastavitve konteksta", open=False):
             with gr.Row():
                 search_method = gr.Radio(
-                    choices=["Lexical", "Semantic", "Hybrid"],
+                    # choices=["Lexical", "Semantic", "Hybrid"],
+                    choices=["Leksični", "Semantični", "Hibridni"],
                     value=global_search_method,
-                    label="Search Method",
+                    # label="Search Method",
+                    label="Način iskanja",
                     interactive=True
                 )
                 k_slider = gr.Slider(
@@ -638,23 +673,26 @@ def build_gradio_interface():
                     maximum=15,
                     value=global_k_context_items,
                     step=1,
-                    label="Number of Context Items",
+                    # label="Number of Context Items",
+                    label="Število kontekstualnih elementov",
                     interactive=True
                 )
                 search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
                 k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
 
         # We render the md formatted result.
-        with gr.Accordion(label="📝 View context items", open=False):
+        # with gr.Accordion(label="📝 View context items", open=False):
+        with gr.Accordion(label="📝 Preglej kontekstualne elemente", open=False):
             search_results_md.render()
         
 
         with gr.Accordion("📖 Navodila za uporabo", open=False):
             gr.Markdown("""
-                By default, all documents are included in the search.
-                By drawing a rectangle on the map, you can narrow down
-                the search to only documents connected to that area.
+                Privzeto so v iskanje vključeni vsi dokumenti.  
+                Z risanjem pravokotnika na zemljevidu lahko omejite  
+                iskanje samo na dokumente, povezane s tem območjem.
             """)
+
 
         # Connect search button -> run_search -> search_results_md
         # search_btn.click(
