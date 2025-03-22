@@ -49,6 +49,15 @@ s3_client = boto3.client(
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI()
 
+# app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+from pathlib import Path
+
+here = Path(__file__).parent.resolve() 
+assets_path = here / "assets"
+
+app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
+
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -71,6 +80,26 @@ db_params = {
 
 conn = psycopg2.connect(**db_params)
 cur = conn.cursor()
+
+#Helper function to embed logo
+import base64
+from pathlib import Path
+
+def get_logo_b64() -> str:
+    """
+    Reads 'zrsvn_logo.png' from disk and returns a base64-encoded string
+    that can be directly embedded in an <img> tag.
+    """
+    
+    here = Path(__file__).parent.resolve()
+    logo_path = here / "assets" / "zrsvn_logo.png"  # or an absolute path if needed
+    
+    with open(logo_path, "rb") as f:
+        data = f.read()
+    b64_data = base64.b64encode(data).decode("utf-8")
+    
+    return b64_data
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Endpoints for map usage
@@ -537,12 +566,16 @@ def run_search(query_text, search_method, k_results):
 
         if presigned_url:
             # Markdown with a clickable link:
-            snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
-            Score: {score:.4f}  
+            # snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
+            # Score: {score:.4f}  
+            snippet = f"""Datoteka št. {file_nr}: [{file_name} (stran {page_number})]({presigned_url})  
+            Ocena relevantnosti: {score:.4f}  
             """
         else:
-            snippet = f"""File nr. {file_nr}: {file_name} (page {page_number})  
-            Score: {score:.4f}  
+            # snippet = f"""File nr. {file_nr}: {file_name} (page {page_number})  
+            # Score: {score:.4f}  
+            snippet = f"""Datoteka št. {file_nr}: {file_name} (stran {page_number})  
+            Ocena relevantnosti: {score:.4f}  
             """  # No hyperlink if S3 link is missing
 
         answers.append(snippet)
@@ -589,9 +622,31 @@ def fetch_selected_docs():
 # Build the Gradio interface
 # ─────────────────────────────────────────────────────────────────────────────
 def build_gradio_interface():
+
+    logo_b64 = get_logo_b64()  # Convert PNG to base64 once at startup
+
     with gr.Blocks(title="ZRSVN RAG") as demo:
 
-        gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">ZRSVN RAG</div>')
+        # gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">ZRSVN RAG</div>')
+        # gr.HTML("""
+        # <div style="display: flex; align-items: center; justify-content: center; padding: 20px;">
+        #     <!-- Cache-busting trick: ?t=999 to avoid stale cached images -->
+        #     <img src="/assets/zrsvn_logo.png?t=999" alt="ZRSVN Logo" style="height:50px; margin-right:15px;">
+        #     <h2 style="margin:0; font-size:24px; line-height:1;">ZRSVN RAG</h2>
+        # </div>
+        # """)
+
+                # Instead of referencing /assets/zrsvn_logo.png, embed directly:
+        gr.HTML(f"""
+        <div style="display: flex; align-items: center; justify-content: center; padding: 20px;">
+            <img 
+              src="data:image/png;base64,{logo_b64}" 
+              alt="ZRSVN Logo" 
+              style="height:50px; margin-right:15px;"
+            >
+            <h2 style="margin:0; font-size:24px; line-height:1;">ZRSVN RAG</h2>
+        </div>
+        """)
 
         # We define search_results beforehand so that the md formatted additional output from ChatInterface/predict can be passed to it,
         # but we do not yet render it.
