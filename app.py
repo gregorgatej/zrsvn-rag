@@ -249,7 +249,8 @@ if not os.path.exists(feedback_csv):
 
 global_chat_history = []
 
-global_search_method = "Hybrid"
+# global_search_method = "Hybrid"
+global_search_method = "Hibridni"
 
 global_k_context_items = 5
 
