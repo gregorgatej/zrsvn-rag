@@ -14,10 +14,3 @@ def print_wrapped(text, wrap_length=80):
             line += word
     if line:
         print(line)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# What Was Removed or Changed?
-# ─────────────────────────────────────────────────────────────────────────────
-# 1) Removed references to 'textwrap.fill' approach for a simpler classic loop.
-# 2) This file mostly remains a small utility snippet for consistent text 
-#    printing. 

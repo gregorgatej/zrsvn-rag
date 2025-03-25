@@ -16,27 +16,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Local imports for our custom modules
-# ─────────────────────────────────────────────────────────────────────────────
-from model_handling import embedding_model  # The BGE-M3 model instance (if needed)
+#from model_handling import embedding_model  # The BGE-M3 model instance (not currently needed)
 from query_handler import (
     lexical_search_limited_scope, 
     semantic_search_limited_scope, 
     hybrid_search_limited_scope
 )
 
-# Load environment variables for DB password
 load_dotenv()
 POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
 
-# Load S3 credentials
 s3_access_key = os.getenv("S3_ACCESS_KEY")
 s3_secret_access_key = os.getenv("S3_SECRET_ACCESS_KEY")
 s3_endpoint_url = "https://moja.shramba.arnes.si"
 bucket_name = "zrsvn-monitoringi-raziskave"
 
-# Initialize S3 client
 s3_client = boto3.client(
     's3',
     endpoint_url=s3_endpoint_url,
@@ -44,12 +38,8 @@ s3_client = boto3.client(
     aws_secret_access_key=s3_secret_access_key
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Initialize FastAPI
-# ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI()
 
-# app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 from pathlib import Path
 
 here = Path(__file__).parent.resolve() 
@@ -61,15 +51,12 @@ app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # In practice, restrict this
+    allow_origins=["*"],   # In production this will need to be restricted
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Database Connection
-# ─────────────────────────────────────────────────────────────────────────────
 db_params = {
     "dbname": "postgis_test1",
     "user": "ggatej-pg",
@@ -81,7 +68,7 @@ db_params = {
 conn = psycopg2.connect(**db_params)
 cur = conn.cursor()
 
-#Helper function to embed logo
+# Helper function to embed logo
 import base64
 from pathlib import Path
 
@@ -92,7 +79,7 @@ def get_logo_b64() -> str:
     """
     
     here = Path(__file__).parent.resolve()
-    logo_path = here / "assets" / "zrsvn_logo.png"  # or an absolute path if needed
+    logo_path = here / "assets" / "zrsvn_logo.png"
     
     with open(logo_path, "rb") as f:
         data = f.read()
@@ -222,7 +209,6 @@ def reset_to_all_files():
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Mount templates directory for the Leaflet map
-# ─────────────────────────────────────────────────────────────────────────────
 app.mount("/templates", StaticFiles(directory="templates"), name="templates")
 templates = Jinja2Templates(directory="templates")
 
@@ -254,8 +240,7 @@ def generate_presigned_url(file_key, page_number):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FEEDBACK & Chatbot
-# ─────────────────────────────────────────────────────────────────────────────
+# Feedback & Chatbot
 feedback_csv = "custom_log.csv"
 if not os.path.exists(feedback_csv):
     with open(feedback_csv, mode='w', newline='', encoding="utf-8") as file:
@@ -515,7 +500,6 @@ def handle_feedback(comment):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Searching logic
-# ─────────────────────────────────────────────────────────────────────────────
 def run_search(query_text, search_method, k_results):
     """
     Return a tuple with:
@@ -555,11 +539,11 @@ def run_search(query_text, search_method, k_results):
         # Ensure row has the correct length before unpacking
         if search_method in ("Lexical", "Semantic"):
             if len(row) != 6:
-                continue  # Skip invalid results
+                continue
             chunk_id, chunk_text, file_name, s3_link, page_number, score = row
         else:
             if len(row) != 6:
-                continue  # Skip invalid results
+                continue
             chunk_id, score, chunk_text, file_name, s3_link, page_number = row
 
         presigned_url = generate_presigned_url(s3_link, page_number)
@@ -619,8 +603,7 @@ def fetch_selected_docs():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Build the Gradio interface
-# ─────────────────────────────────────────────────────────────────────────────
+# Gradio interface
 def build_gradio_interface():
 
     logo_b64 = get_logo_b64()  # Convert PNG to base64 once at startup
@@ -636,7 +619,7 @@ def build_gradio_interface():
         # </div>
         # """)
 
-                # Instead of referencing /assets/zrsvn_logo.png, embed directly:
+        # Instead of referencing /assets/zrsvn_logo.png, we embed directly:
         gr.HTML(f"""
         <div style="display: flex; align-items: center; justify-content: center; padding: 20px;">
             <img 
@@ -708,10 +691,7 @@ def build_gradio_interface():
             # Markdown for displaying the doc count
             docs_text = gr.Markdown()
             show_docs_button.click(fetch_selected_docs, inputs=[], outputs=docs_text)
-
-            # --- Search section ---
-
-        
+   
         # with gr.Accordion(label="⚙️ Context settings", open=False):
         with gr.Accordion(label="⚙️ Nastavitve konteksta", open=False):
             with gr.Row():
@@ -748,8 +728,8 @@ def build_gradio_interface():
                 iskanje samo na dokumente, povezane s tem območjem.
             """)
 
-
-        # Connect search button -> run_search -> search_results_md
+        # Deprecated Search button
+        # Connects search button -> run_search -> search_results_md
         # search_btn.click(
         #     fn=lambda query, method, k: run_search(query, method, k)[0],  # Extract only the first return value
         #     inputs=[query_box, search_method, k_slider],

@@ -107,9 +107,7 @@
         });
         map.addControl(drawControl);
 
-        /* ───────────────────────────────────────────────────────────── */
-        /* 1) CREATE A CUSTOM "CLEAR" BUTTON TO RESET DRAWINGS & DOCS   */
-        /* ───────────────────────────────────────────────────────────── */
+        /* CUSTOM "CLEAR" BUTTON TO RESET DRAWINGS & DOCS   */
         var ClearControl = L.Control.extend({
             options: { position: 'topleft' },
             onAdd: function(map) {
@@ -124,7 +122,7 @@
                 container.style.justifyContent = 'center';
                 container.title = "Clear drawn rectangles and reset selected docs";
 
-                container.innerHTML = '🗑'; // Trash bin icon
+                container.innerHTML = '🗑';
 
                 L.DomEvent.disableClickPropagation(container);
 
@@ -155,12 +153,10 @@
             }
         });
 
-        // 2) Add the new ClearControl to the map
+        // Add the new ClearControl to the map
         map.addControl(new ClearControl());
 
-        /* ───────────────────────────────────────────────────────────── */
         /* Handle Map Events for Drawing                                */
-        /* ───────────────────────────────────────────────────────────── */
         map.on('draw:drawstart', function () {
             console.log("✏️ Drawing started - Hiding clusters");
             map.removeLayer(markerCluster);

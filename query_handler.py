@@ -8,8 +8,6 @@ import logfire
 logfire.configure()
 logfire.instrument_psycopg()
 
-# We import the embedding model instance from model_handling.
-# This is the BGE-M3 model loaded via FlagAutoModel.
 from model_handling import embedding_model
 
 def escape_special_chars(query):
@@ -37,7 +35,6 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
     conn = psycopg2.connect(**db_params)
     cursor = conn.cursor()
 
-    # Escape special characters
     safe_query = escape_special_chars(query)
 
     search_query = """
@@ -142,7 +139,6 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     # The <=> operator is the pgvector distance operator. 
     # paradedb.score(c.id) is the BM25-like function for lexical ranking.
 
-    # Escape special characters
     safe_query = escape_special_chars(query)
 
     search_query = """
@@ -200,15 +196,3 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     conn.close()
 
     return results
-
-# ─────────────────────────────────────────────────────────────────────────────
-# What Was Removed or Changed?
-# ─────────────────────────────────────────────────────────────────────────────
-# 1) Removed the old logic that used Faiss or local BM25 code with tokens. 
-#    Now we rely on stored embeddings and text indexes in PostgreSQL.
-# 2) The new code uses BGE-M3 embeddings via 'model_handling.py' and 
-#    the "FlagAutoModel" approach.
-# 3) Each search function filters to the 'selected_files_log' so that only 
-#    bounding-box-chosen files are considered.
-# 4) We replaced list comprehensions with more classical code in some places, 
-#    but tried to keep it readable.

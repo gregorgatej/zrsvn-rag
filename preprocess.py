@@ -1,7 +1,7 @@
 import os
-import fitz            # PyMuPDF
+import fitz
 from tqdm import tqdm
-import semchunk        # For semantic chunking
+import semchunk
 import psycopg2
 from dotenv import load_dotenv
 from model_handling import embedding_model
@@ -53,10 +53,8 @@ def read_pdfs(folder_path):
         doc = fitz.open(file_path)
         pages = []
 
-        # Classic loop over pages
         for page_num in range(len(doc)):
             page_text = doc[page_num].get_text("text")
-            # We store page_number (1-based) plus the actual text
             pages.append({
                 "page_number": page_num + 1,
                 "page_text": page_text
@@ -99,7 +97,6 @@ def make_chunks(pdf_data, chunk_size=150, chunk_threshold=0):
     for pdf_index, pdf_info in pdf_data.items():
         file_name = pdf_info["file_name"]
 
-        # Classic loop over pages
         for page in pdf_info["pages"]:
             page_number = page["page_number"]
             page_text = page["page_text"]
@@ -107,7 +104,6 @@ def make_chunks(pdf_data, chunk_size=150, chunk_threshold=0):
             # Use semchunk to produce a list of text chunks
             chunks = chunker(page_text)
 
-            # Another classic loop over each chunk
             for chunk_index in range(len(chunks)):
                 chunk_text = chunks[chunk_index]
                 word_count = count_words(chunk_text)
@@ -121,7 +117,6 @@ def make_chunks(pdf_data, chunk_size=150, chunk_threshold=0):
                     })
     return chunked_data
 
-
 def store_chunks_in_db(chunked_data):
     """
     Stores chunk metadata into the 'chunks' table, linking each chunk
@@ -131,7 +126,7 @@ def store_chunks_in_db(chunked_data):
     cursor = conn.cursor()
 
     # Insert each chunk
-    # We assume 'files' table has a unique 'file_name' column, 
+    # 'files' table has a unique 'file_name' column, 
     # and 'chunks' has (id SERIAL, files_id FK, page_number, chunk_text, etc.)
     for chunk in chunked_data:
         # 1) fetch files.id from 'files'
@@ -139,8 +134,8 @@ def store_chunks_in_db(chunked_data):
         cursor.execute(get_file_id_query, (chunk["file_name"],))
         file_id_result = cursor.fetchone()
         if not file_id_result:
+            # 'files' is pre-populated
             # If not found, we might skip or insert a new row in 'files'
-            # for simplicity, we assume 'files' is pre-populated
             continue
         file_id = file_id_result[0]
 
@@ -154,7 +149,6 @@ def store_chunks_in_db(chunked_data):
     conn.commit()
     cursor.close()
     conn.close()
-
 
 def generate_and_store_embeddings():
     """
@@ -223,13 +217,3 @@ def pipeline_ingest(folder_of_pdfs):
     store_chunks_in_db(chunked_data)
     generate_and_store_embeddings()
     print("Pipeline ingestion is complete.")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# What Was Removed or Changed?
-# ─────────────────────────────────────────────────────────────────────────────
-# 1) Removed old references to FAISS, BM25, streaming or token-based chunkers 
-#    in the older code. Instead we rely on semchunk for chunking.
-# 2) Thoroughly commented each step to make it more interpretable with 
-#    classic loops. 
-# 3) Provided a "pipeline_ingest" function as a usage example.

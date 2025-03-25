@@ -38,7 +38,6 @@ def inspect_chunks(chunk_data, nr_rows=5):
     print(f"\nLast {nr_rows} chunks by character count:")
     print(tail_char_count[['file_name', 'page_number', 'chunk_text', 'chunk_char_count']])
 
-    # Plot distributions
     plt.figure(figsize=(12, 5))
 
     plt.subplot(1, 2, 1)
@@ -53,10 +52,3 @@ def inspect_chunks(chunk_data, nr_rows=5):
     plt.show()
 
     return df
-
-# ─────────────────────────────────────────────────────────────────────────────
-# What Was Removed or Changed?
-# ─────────────────────────────────────────────────────────────────────────────
-# 1) Simplified code to focus on the chunk's word count distribution.
-# 2) Removed the token count distributions from the old version, 
-#    as it's no longer strictly required for the new pipeline.
