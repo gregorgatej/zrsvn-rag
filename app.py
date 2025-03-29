@@ -3,7 +3,9 @@ import json
 import gradio as gr
 import psycopg2
 import requests
-import boto3
+from datetime import timedelta
+from minio import Minio
+from minio.error import S3Error
 import openai
 import csv
 import time
@@ -28,14 +30,14 @@ POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
 
 s3_access_key = os.getenv("S3_ACCESS_KEY")
 s3_secret_access_key = os.getenv("S3_SECRET_ACCESS_KEY")
-s3_endpoint_url = "https://moja.shramba.arnes.si"
+s3_endpoint_url = "moja.shramba.arnes.si"
 bucket_name = "zrsvn-monitoringi-raziskave"
 
-s3_client = boto3.client(
-    's3',
-    endpoint_url=s3_endpoint_url,
-    aws_access_key_id=s3_access_key,
-    aws_secret_access_key=s3_secret_access_key
+s3_client = Minio(
+    endpoint=s3_endpoint_url,
+    access_key=s3_access_key,
+    secret_key=s3_secret_access_key,
+    secure=True  # True for HTTPS
 )
 
 app = FastAPI()
@@ -228,10 +230,10 @@ def generate_presigned_url(file_key, page_number):
         return None  # No presigned URL for missing S3 link
 
     try:
-        presigned_url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': bucket_name, 'Key': file_key},
-            ExpiresIn=3600
+        presigned_url = s3_client.presigned_get_object(
+            bucket_name,
+            file_key,
+            expires=timedelta(hours=1)
         )
         return f"{presigned_url}#page={page_number}"
     except Exception as e:
