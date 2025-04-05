@@ -431,10 +431,7 @@ def predict(message, history):
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    logfire.configure(
-        service_name="zrsvn-rag",
-        send_to_logfire=False
-    )
+    logfire.configure(send_to_logfire=False)
     logfire.instrument_openai(client)
 
     stream = client.chat.completions.create(
