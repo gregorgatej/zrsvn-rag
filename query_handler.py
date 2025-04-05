@@ -5,7 +5,10 @@ from pgvector.psycopg2 import register_vector
 import re
 import logfire
 
-logfire.configure(send_to_logfire=False)
+logfire.configure(
+    service_name="zrsvn-rag",
+    send_to_logfire=False
+)
 logfire.instrument_psycopg()
 
 from model_handling import embedding_model
