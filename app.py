@@ -7,6 +7,7 @@ from datetime import timedelta
 from minio import Minio
 from minio.error import S3Error
 import openai
+from openai import AzureOpenAI
 import csv
 import time
 import logfire
@@ -429,9 +430,24 @@ def predict(message, history):
     else:
         messages.append({"role": "user", "content": message})
 
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    # OPENAI standard client
+    # client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    logfire.configure(send_to_logfire=False)
+    # Azure OPENAI client
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    # model_name = "gpt-4o-mini"
+    # deployment = "gpt-4o-mini"
+
+    subscription_key = os.getenv("AZURE_OPENAI_KEY")
+    api_version = "2024-12-01-preview"
+
+    client = AzureOpenAI(
+        api_version=api_version,
+        azure_endpoint=endpoint,
+        api_key=subscription_key,
+    )
+
+    logfire.configure(send_to_logfire=False, service_name="zrsvn-rag")
     logfire.instrument_openai(client)
 
     stream = client.chat.completions.create(
@@ -457,12 +473,14 @@ def predict(message, history):
     })
 
     for chunk in stream:
+        # We handle cases where we receive an empty choice/response.
+        if not chunk.choices:
+            print("Empty choices received:", chunk)
+            continue
         delta = chunk.choices[0].delta.content or ""
         chunks.append(delta)
-
         # Update last assistant message incrementally
         global_chat_history[-1]["content"] += delta
-
         full_response = "".join(chunks)
         yield full_response, results_md
         time.sleep(0.025)
