@@ -17,3 +17,4 @@ openai==1.13.3
 #flask==3.0.3
 gradio==4.44.0
 minio=7.2.15
+prefect=3.3.3
