@@ -2,3 +2,53 @@ unique_server_links
 app2.py
 test.ipynb
 .env
+
+# Generic safeguard ignores
+
+# Backup files
+.env.bak
+
+# Private keys
+*.key
+*.pem
+*.crt
+
+# Database files
+*.db
+
+# IDE/Editor folders and files
+.vscode/
+.idea/
+
+# Environment-specific configuration
+.env.local
+
+# Logs and temporary files
+*.log
+logs/
+
+# Build and distribution directories
+node_modules/
+dist/
+build/
+target/
+
+# Temporary editor files
+*.swp
+*.bak
+*.tmp
+
+# Python specific files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# Virtual environment directories
+venv/
+env/
