@@ -1,4 +1,5 @@
-unique_server_links
+unique_server_links/
+.logfire/
 app2.py
 test.ipynb
 .env
