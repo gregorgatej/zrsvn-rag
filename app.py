@@ -27,12 +27,12 @@ from query_handler import (
 )
 
 load_dotenv()
-POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
 s3_access_key = os.getenv("S3_ACCESS_KEY")
 s3_secret_access_key = os.getenv("S3_SECRET_ACCESS_KEY")
 s3_endpoint_url = "moja.shramba.arnes.si"
-bucket_name = "zrsvn-monitoringi-raziskave"
+bucket_name = "zrsvn-rag-najdbe"
 
 s3_client = Minio(
     endpoint=s3_endpoint_url,
@@ -60,12 +60,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# We include public under search_path because postgis installs
+# its types into public schema
 db_params = {
-    "dbname": "postgis_test1",
+    "dbname": "zrsvn",
     "user": "ggatej-pg",
-    "password": POSTGIS_PASSWORD,
+    "password": POSTGRES_PASSWORD,
     "host": "localhost",
-    "port": "5432"
+    "port": "5432",
+    "options":  "-c search_path=public,rag_najdbe"
 }
 
 conn = psycopg2.connect(**db_params)
@@ -100,9 +103,11 @@ def get_all_points():
     GET endpoint that retrieves all geometry points in 'najdbe' table 
     and streams them back as newline-delimited JSON.
     """
+    # TODO This needs to be tested, since WHERE clause has been newly added
     query = """
         SELECT ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326)) AS geom
-        FROM najdbe;
+        FROM najdbe
+        WHERE file_id IS NOT NULL;
     """
 
     try:
@@ -144,23 +149,30 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
     all files will be selected.
     """
     if None in (min_lat, max_lat, min_lon, max_lon):  # Case: App starts
-        cur.execute("SELECT file_name FROM files;")
+        cur.execute("SELECT filename FROM files;")
         results = cur.fetchall()
     else:
         query = """
-            SELECT DISTINCT f.file_name 
-            FROM files f
-            JOIN najdbe n ON f.id = n.files_id
-            WHERE ST_Within(
-                ST_Transform(n.wkb_geometry, 4326), 
-                ST_MakeEnvelope(%s, %s, %s, %s, 4326)
-            );
+          WITH bbox_3794 AS (
+            SELECT ST_Transform(
+                     ST_MakeEnvelope(%s, %s, %s, %s, 4326),
+                     3794
+                   ) AS geom
+          )
+          SELECT DISTINCT f.filename
+          FROM rag_najdbe.files AS f
+          JOIN rag_najdbe.najdbe AS n
+            ON f.id = n.file_id
+          JOIN bbox_3794
+            ON ST_Within(n.wkb_geometry, bbox_3794.geom);
         """
+        cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
+
         cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
         results = cur.fetchall()
 
         if not results:  # Case: No files in the selected region
-            cur.execute("SELECT file_name FROM files;")
+            cur.execute("SELECT filename FROM files;")
             results = cur.fetchall()
     
     filenames = []
@@ -205,7 +217,7 @@ def reset_to_all_files():
     # Clear old selections
     cur.execute("DELETE FROM selected_files_log;")
     # Insert all files
-    cur.execute("INSERT INTO selected_files_log (filename) SELECT file_name FROM files;")
+    cur.execute("INSERT INTO selected_files_log (filename) SELECT filename FROM files;")
     conn.commit()
 
     return {"message": "Selection reset to all files."}
@@ -434,11 +446,11 @@ def predict(message, history):
     # client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     # Azure OPENAI client
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    endpoint = os.getenv("ZRSVN_AZURE_OPENAI_ENDPOINT")
     # model_name = "gpt-4o-mini"
     # deployment = "gpt-4o-mini"
 
-    subscription_key = os.getenv("AZURE_OPENAI_KEY")
+    subscription_key = os.getenv("ZRSVN_AZURE_OPENAI_KEY")
     api_version = "2024-12-01-preview"
 
     client = AzureOpenAI(
@@ -551,7 +563,7 @@ def run_search(query_text, search_method, k_results):
     if not results:
         # return "No results found.", []
         # return "No context items could be displayed. Please refine your question.", []
-        return "Iskanje ni vrnilo nobenih kontekstualnih elementov. Poskusite znova, z drugačnim vprašanjem.", []
+        return "Iskanje ni vrnilo nobenih kontekstualnih elementov. Poskusite znova, z drugačnim vprašanjem oz. poizvedbo.", []
 
     answers = []
     results_list = []

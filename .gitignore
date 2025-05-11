@@ -1,4 +1,5 @@
 unique_server_links/
+0_neaktualno/
 .logfire/
 app2.py
 test.ipynb
@@ -55,4 +56,5 @@ venv/
 env/
 
 # Data
-.csv
+*.csv
+*.xlsx

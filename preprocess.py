@@ -15,12 +15,12 @@ register_adapter(np.float32, lambda val: AsIs(val))
 register_adapter(np.float64, lambda val: AsIs(val))
 
 load_dotenv()
-POSTGIS_PASSWORD = os.getenv("POSTGIS_TEST1_PASSWORD")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
 db_params = {
     "dbname": "postgis_test1",
     "user": "ggatej-pg",
-    "password": POSTGIS_PASSWORD,
+    "password": POSTGRES_PASSWORD,
     "host": "localhost",
     "port": "5432"
 }
