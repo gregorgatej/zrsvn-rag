@@ -82,6 +82,8 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
       se.page_nr                   AS page_number,
       1 - (e.vector <=> %s)        AS score
     FROM rag_najdbe.embeddings   AS e
+    -- only embeddings tied to text chunks
+    WHERE e.text_chunk_id IS NOT NULL
     JOIN rag_najdbe.text_chunks  AS tc ON e.text_chunk_id = tc.id
     JOIN rag_najdbe.paragraphs   AS p  ON p.prepared_text_id = tc.prepared_text_id
     JOIN rag_najdbe.section_elements AS se ON se.id = p.section_element_id
@@ -137,6 +139,8 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     semantic_candidates AS (
       SELECT e.text_chunk_id AS id
       FROM rag_najdbe.embeddings AS e
+      -- only embeddings tied to text chunks
+      WHERE e.text_chunk_id IS NOT NULL
       JOIN rag_najdbe.text_chunks  AS tc ON e.text_chunk_id = tc.id
       JOIN rag_najdbe.paragraphs   AS p  ON p.prepared_text_id = tc.prepared_text_id
       JOIN rag_najdbe.section_elements AS se ON se.id = p.section_element_id

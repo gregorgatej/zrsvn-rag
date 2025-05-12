@@ -620,6 +620,12 @@ def run_search(query_text, search_method, k_results):
     # Join all snippet lines into Markdown
     return markdown_answers, results_list
 
+    # TODO 
+    # Change the queries inside query_handler to also return sections.summary (related to retrieved chunk)
+    # and files.summary (related to retrieved chunk).
+    # Change the prompt to reflect this.
+
+    # # Loti se izdelave preprocessing pipeline-a za qa app.
 
 def fetch_selected_docs():
     """
