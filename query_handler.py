@@ -32,6 +32,9 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
     cursor = conn.cursor()
     safe_q = escape_special_chars(query)
 
+    ###YOUR TASK### Change this to return also
+    # sections.summary (renamed AS section_summary) 
+    # and files.summary (renamed AS file_summary)
     sql = """
     SELECT
       tc.id,
@@ -39,6 +42,8 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
       f.filename,
       f.s3_key                    AS s3_link,
       se.page_nr                  AS page_number,
+      s.summary                   AS section_summary,
+      f.summary                   AS file_summary,
       paradedb.score(tc.id)      AS score
     FROM rag_najdbe.text_chunks AS tc
     JOIN rag_najdbe.paragraphs  AS p  ON p.prepared_text_id = tc.prepared_text_id
@@ -73,6 +78,10 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
     register_vector(conn)
     cursor = conn.cursor()
 
+
+    ###YOUR TASK### Change this to return also
+    # sections.summary (renamed AS section_summary) 
+    # and files.summary (renamed AS file_summary)
     sql = """
     SELECT
       tc.id,
@@ -80,6 +89,8 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
       f.filename,
       f.s3_key                     AS s3_link,
       se.page_nr                   AS page_number,
+      s.summary                   AS section_summary,
+      f.summary                   AS file_summary,
       1 - (e.vector <=> %s)        AS score
     FROM rag_najdbe.embeddings   AS e
     JOIN rag_najdbe.text_chunks  AS tc ON e.text_chunk_id = tc.id
@@ -117,6 +128,10 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     register_vector(conn)
     cursor = conn.cursor()
 
+
+    ###YOUR TASK### Change this to return also
+    # sections.summary (renamed AS section_summary) 
+    # and files.summary (renamed AS file_summary)
     sql = """
     WITH bm25_candidates AS (
       SELECT tc.id
@@ -165,7 +180,9 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
       tc.text                       AS chunk_text,
       f.filename,
       f.s3_key                      AS s3_link,
-      se.page_nr                    AS page_number
+      se.page_nr                    AS page_number,
+      s.summary                   AS section_summary,
+      f.summary                   AS file_summary
     FROM semantic_ranked sr
     FULL  OUTER JOIN bm25_ranked br ON sr.id = br.id
     JOIN rag_najdbe.text_chunks  AS tc ON tc.id = COALESCE(sr.id, br.id)

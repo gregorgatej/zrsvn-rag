@@ -346,13 +346,27 @@ def add_context(query):
         # if not results_list:
         #     return "No relevant context found."
 
-        chunk_texts=[]
+        chunk_texts = []
+        section_summaries = []
+        file_summaries = []
+
+        # Populating the lists
         for item in results_list:
             chunk_texts.append(item["chunk_text"])
+            section_summaries.append(item["section_summary"])
+            file_summaries.append(item["file_summary"])
 
-        if chunk_texts:
-            context = "- " + "\n- ".join(chunk_texts)
-        else:
+        # Initializing the context string
+        context = ""
+
+        # Iterating through the lists and appending formatted content
+        for i in range(len(chunk_texts)):
+            context += f"[CHUNK_TEXT]:\n{chunk_texts[i]}\n"
+            context += f"[SECTION_SUMMARY]:\n{section_summaries[i]}\n"
+            context += f"[FILE_SUMMARY]:\n{file_summaries[i]}\n\n"
+
+        # If there are no chunk texts, set a default message
+        if not chunk_texts:
             context = "No relevant context items found."
 
         # query_references_chat_history = check_query(query)
@@ -362,11 +376,16 @@ def add_context(query):
             "Give yourself room to think by extracting relevant passages from the context before answering the query. "
             "Don't return the thinking, only return the answer. "
             "Make sure your answers are as explanatory as possible.\n\n"
-            "Context items:\n"
+            "The context items will be provided in the following order: first, the [CHUNK_TEXT], which is the most granular and specific information, "
+            "allowing you to focus directly on the most relevant content. After that, you will receive the [SECTION_SUMMARY], which corresponds to the section the chunk falls under, "
+            "and then the [FILE_SUMMARY], which corresponds to the file the section is part of. These will provide additional context or clarification.\n\n"
+            "Context items:\n\n"
             "{context}\n\n"
             "User query: {query}\n\n"
             "Answer:"
         )
+
+
 
         # In place for possible future use if user feedback will problematise referals to chat history.
         # if query_references_chat_history:
@@ -574,13 +593,13 @@ def run_search(query_text, search_method, k_results):
     for row in results:
         # Ensure row has the correct length before unpacking
         if search_method in ("Lexical", "Semantic"):
-            if len(row) != 6:
+            if len(row) != 8:
                 continue
-            chunk_id, chunk_text, file_name, s3_link, page_number, score = row
+            chunk_id, chunk_text, file_name, s3_link, page_number, score, section_summary, file_summary = row
         else:
-            if len(row) != 6:
+            if len(row) != 8:
                 continue
-            chunk_id, score, chunk_text, file_name, s3_link, page_number = row
+            chunk_id, score, chunk_text, file_name, s3_link, page_number, section_summary, file_summary = row
 
         presigned_url = generate_presigned_url(s3_link, page_number)
 
@@ -606,6 +625,8 @@ def run_search(query_text, search_method, k_results):
             "s3_link": s3_link,
             "page_number": page_number,
             "chunk_text": chunk_text,
+            "section_summary": section_summary,
+            "file_summary": file_summary,
             "presigned_url": presigned_url if presigned_url else "",
             "score": round(score, 4),
             "snippet": snippet
