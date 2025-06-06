@@ -32,27 +32,28 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
     cursor = conn.cursor()
     safe_q = escape_special_chars(query)
 
-    ###YOUR TASK### Change this to return also
-    # sections.summary (renamed AS section_summary) 
-    # and files.summary (renamed AS file_summary)
     sql = """
-    SELECT
+    SELECT *
+    FROM (
+    SELECT DISTINCT ON (tc.id)
       tc.id,
+      paradedb.score(tc.id)      AS score,
       tc.text                     AS chunk_text,
       f.filename,
       f.s3_key                    AS s3_link,
       se.page_nr                  AS page_number,
       s.summary                   AS section_summary,
-      f.summary                   AS file_summary,
-      paradedb.score(tc.id)      AS score
+      f.summary                   AS file_summary
     FROM rag_najdbe.text_chunks AS tc
     JOIN rag_najdbe.paragraphs  AS p  ON p.prepared_text_id = tc.prepared_text_id
     JOIN rag_najdbe.section_elements AS se ON se.id = p.section_element_id
     JOIN rag_najdbe.sections   AS s  ON s.id = se.section_id
     JOIN rag_najdbe.files      AS f  ON f.id = s.file_id
     JOIN rag_najdbe.selected_files_log AS sfl
-      ON f.filename = sfl.filename
+      ON f.id = sfl.file_id
     WHERE tc.text @@@ %s
+    ORDER BY tc.id, score DESC
+    ) sub
     ORDER BY score DESC
     LIMIT %s;
     """
@@ -78,20 +79,22 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
     register_vector(conn)
     cursor = conn.cursor()
 
-
-    ###YOUR TASK### Change this to return also
-    # sections.summary (renamed AS section_summary) 
-    # and files.summary (renamed AS file_summary)
     sql = """
-    SELECT
+    SELECT *
+    FROM (
+    SELECT DISTINCT ON (tc.id)
       tc.id,
+      -- Operator <=> vrača razdaljo oz. kosinusno razdaljo med vektorjema. Ker manjši rezultat (0 = popolno ujemanje) 
+      -- izraža višjo podobnost, razdaljo odštejemo od 1. S tem povzročimo, da je z boljšim ujemanjem povezana višja 
+      -- vrednost rezultata, kar
+      -- deluje bolj intuitivno in je v skladu z implementacijo pri leksičnem iskanju. 
+      1 - (e.vector <=> %s)        AS score,
       tc.text                      AS chunk_text,
       f.filename,
       f.s3_key                     AS s3_link,
       se.page_nr                   AS page_number,
       s.summary                   AS section_summary,
-      f.summary                   AS file_summary,
-      1 - (e.vector <=> %s)        AS score
+      f.summary                   AS file_summary
     FROM rag_najdbe.embeddings   AS e
     JOIN rag_najdbe.text_chunks  AS tc ON e.text_chunk_id = tc.id
     JOIN rag_najdbe.paragraphs   AS p  ON p.prepared_text_id = tc.prepared_text_id
@@ -99,14 +102,16 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
     JOIN rag_najdbe.sections    AS s  ON s.id = se.section_id
     JOIN rag_najdbe.files       AS f  ON f.id = s.file_id
     JOIN rag_najdbe.selected_files_log AS sfl
-      ON f.filename = sfl.filename
+      ON f.id = sfl.file_id
     -- only embeddings tied to text chunks
     WHERE e.text_chunk_id IS NOT NULL
-    ORDER BY e.vector <=> %s
+    ORDER BY tc.id, score DESC
+    ) sub
+    ORDER BY score DESC
     LIMIT %s;
     """
 
-    cursor.execute(sql, (q_vec, q_vec, k))
+    cursor.execute(sql, (q_vec, k))
     results = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -128,10 +133,6 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     register_vector(conn)
     cursor = conn.cursor()
 
-
-    ###YOUR TASK### Change this to return also
-    # sections.summary (renamed AS section_summary) 
-    # and files.summary (renamed AS file_summary)
     sql = """
     WITH bm25_candidates AS (
       SELECT tc.id
@@ -141,7 +142,7 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
       JOIN rag_najdbe.sections   AS s  ON s.id = se.section_id
       JOIN rag_najdbe.files      AS f  ON f.id = s.file_id
       JOIN rag_najdbe.selected_files_log AS sfl
-        ON f.filename = sfl.filename
+        ON f.id = sfl.file_id
       WHERE tc.text @@@ %s
       ORDER BY paradedb.score(tc.id) DESC
       LIMIT %s
@@ -160,20 +161,22 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
       JOIN rag_najdbe.sections    AS s  ON s.id = se.section_id
       JOIN rag_najdbe.files       AS f  ON f.id = s.file_id
       JOIN rag_najdbe.selected_files_log AS sfl
-        ON f.filename = sfl.filename
+        ON f.id = sfl.file_id
       -- only embeddings tied to text chunks
       WHERE e.text_chunk_id IS NOT NULL
-      ORDER BY e.vector <=> %s
+      ORDER BY (1 - (e.vector <=> %s)) DESC
       LIMIT %s
     ),
     semantic_ranked AS (
       SELECT sc.id,
-             RANK() OVER (ORDER BY e.vector <=> %s) AS rank
+             RANK() OVER (ORDER BY (1 - (e.vector <=> %s)) DESC) AS rank
       FROM semantic_candidates sc
       JOIN rag_najdbe.embeddings AS e
         ON e.text_chunk_id = sc.id
     )
-    SELECT
+    SELECT *
+    FROM (
+    SELECT DISTINCT ON (COALESCE(sr.id, br.id))
       COALESCE(sr.id, br.id)       AS id,
       COALESCE(1.0/(60+sr.rank),0) +
       COALESCE(1.0/(60+br.rank),0)  AS score,
@@ -190,7 +193,9 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     JOIN rag_najdbe.section_elements AS se ON se.id = p.section_element_id
     JOIN rag_najdbe.sections    AS s  ON s.id = se.section_id
     JOIN rag_najdbe.files       AS f  ON f.id = s.file_id
-    ORDER BY score DESC, tc.text
+    ORDER BY COALESCE (sr.id, br.id), score DESC
+    ) AS sub
+    ORDER BY score DESC
     LIMIT %s;
     """
 

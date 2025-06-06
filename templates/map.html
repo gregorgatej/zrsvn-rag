@@ -141,7 +141,7 @@
                     // We are currently ommiting this since we are opting for all files
                     // being chosen when no rectangles are drawn.
                     // 3. Reset the selected documents on the backend
-                    // fetch("http://localhost:8000/reset_selected_filenames/", { method: "POST" })
+                    // fetch("http://localhost:8000/reset_selected_files/", { method: "POST" })
                     //     .then(response => response.json())
                     //     .then(data => {
                     //         console.log("📌 Selected files reset:", data.message);
@@ -167,7 +167,27 @@
             console.log("✅ Drawing stopped - Showing clusters");
             map.addLayer(markerCluster);
         });
-
+        /* Ko uporabnik na zemljevidu nariše robni okvir z orodjem Leaflet Draw
+        se sproži dogodek draw:created. Znotraj tega dogodka layer.getBounds() poskrbi
+        za pridobitev geografskih koordinat robnega okvirja. Koordinate so podane v
+        EPSG:4326 oz.WSG 84 (World Geodetic System 1984), ki je standard pri
+        globalnem določanju zemljepisnih lokacij. Slednje koordinate se vključijo
+        v HTTP GET zahtevo, ki jo pošljemo FastAPI dostopni točki  /get_files/,
+        ki sprejema argumente min_lat, max_lat, min_lon, max_lon. FastAPI funkcija
+        na podlagi prejetih podatkov izvede SQL poizvedbo kjer koordinate, podane
+        v EPSG:4326 pretvori v lokalni koordinatni sistem EPSG:3794 in nato prek
+        povezanih tabel files in najdbe poišče vse dokumente, katerih geometrijske
+        točke (tj. najdbe vrst rastlin in/ali živali, ki so vezane na dokument) 
+        se nahajajo znotraj območja, ki ga je uporabnik zarisal na zemljevidu. Izbrane
+        datoteke se shranijo v ločeno tabelo selected_files_log. Ta služi shranjevanju
+        trenutno aktivnega izbora datotek. To prinese s sabo naslednje koristi:
+        - Ohranimo stanje izbora v primeru izpada povezljivosti do baze.
+        - Omogočimo bolj enostavno in učinkovito filtriranje pri nadaljnjih iskalnih
+          poizvedbah.
+        - Z ločitvijo stanja proč od samih podatkov omogočimo lažje prihodnje nadgradnje
+          za upravljanje izborov med več različnimi uporabniškimi sejami.
+        Celoten mehanizem tega dela kode omogoči dinamično filtriranje dokumentov glede
+        na geografsko območje, ki ga uporabnik izbere z risanjem po zemljevidu. */
         map.on('draw:created', function (e) {
             drawnItems.clearLayers();
             var layer = e.layer;
@@ -179,10 +199,10 @@
             var maxLat = bounds.getNorthEast().lat;
             var maxLon = bounds.getNorthEast().lng;
 
-            fetch(`http://localhost:8000/get_filenames/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
+            fetch(`http://localhost:8000/get_files/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
                 .then(response => response.json())
                 .then(data => {
-                    console.log("Selected files:", data.selected_filenames);
+                    console.log("Selected file IDs:", data.selected_files);
                 })
                 .catch(error => console.error("Error:", error));
         });

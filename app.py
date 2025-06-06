@@ -1,25 +1,37 @@
 import os
 import json
+# Za uporabniški vmesnik.
 import gradio as gr
 import psycopg2
 import requests
 from datetime import timedelta
 from minio import Minio
-from minio.error import S3Error
 import openai
 from openai import AzureOpenAI
+# Za beleženje povratnih informacij.
 import csv
 import time
+# Za telemetrijo.
 import logfire
 from datetime import datetime
+# FastAPI za dostopne točke.
 from fastapi import FastAPI, Request
+# Serviranje statičnih datotek.
 from fastapi.staticfiles import StaticFiles
+# Renderiranje HTML predlog.
 from fastapi.templating import Jinja2Templates
+# Uravnavanje CORS za odjemalski del (t.i. frontend) aplikacije.
 from fastapi.middleware.cors import CORSMiddleware
+# Vračanje odgovor na zahteve v obliki tokov (ang. stream).
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
+# Pretvorba binarnih podatkov v niz znakov.
+import base64
+from pathlib import Path
+# Pomoč pri tipizaciji.
+from typing import Optional
 
-#from model_handling import embedding_model  # The BGE-M3 model instance (not currently needed)
+# Funkcije za leksično, semantično in hibridno iskanje.
 from query_handler import (
     lexical_search_limited_scope, 
     semantic_search_limited_scope, 
@@ -38,30 +50,39 @@ s3_client = Minio(
     endpoint=s3_endpoint_url,
     access_key=s3_access_key,
     secret_key=s3_secret_access_key,
-    secure=True  # True for HTTPS
+    secure=True
 )
 
+# Inicializiramo FastAPI aplikacijo, ki bo sprejemala HTTP zahtevke, z njimi
+# upravljala in vračala odgovore.
+# Objekt app bomo večinoma uporabljali za definicijo dostopnih točk 
+# (ang. endpointov) in serviranje statičnih datotek.
 app = FastAPI()
 
 from pathlib import Path
 
+# Nastavimo pot do mape z viri, ki v našem primeru vsebuje samo sliko zavoskega
+# logotipa.
 here = Path(__file__).parent.resolve() 
 assets_path = here / "assets"
 
 app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 
 
-# Enable CORS
+# Ker odjemalski del teče na drugem portu kot zaledni del
+# aplikacije moramo omogočiti CORS (Cross-Origin Resource Sharing). Brez slednjega* brskalnik ne dovoli odjemalskemu
+# delu naše aplikacije, da bi prejela odgovor na GET zahtevo po vseh relevantnih geografskih točkah, zaradi česar se
+# te ne prikažejo na vgnezdenem zemljevidu. 
+# TODO Glede na to, da je zemljevid v map.html vgnezden v Gradio frontend prek iframe in da se Javascript fetch 
+# zahtevki dogajajo prek map.html cross-origin ne bi smel veljati. V praksi pa brez spodnjega dela kode prikaz točk
+# ne deluje. Kje je razlog?
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # In production this will need to be restricted
+    allow_origins=["http://127.0.0.1:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# We include public under search_path because postgis installs
-# its types into public schema
 db_params = {
     "dbname": "zrsvn",
     "user": "ggatej-pg",
@@ -71,13 +92,12 @@ db_params = {
     "options":  "-c search_path=public,rag_najdbe"
 }
 
+# Ustvarimo globalno povezavo do baze in kurzor, ki ju bomo delili med dostopnimi točkami.
 conn = psycopg2.connect(**db_params)
 cur = conn.cursor()
 
-# Helper function to embed logo
-import base64
-from pathlib import Path
-
+# Prebere 'zrsvn_logo.png' iz mape assets in vrne base64 niz,
+# ki ga lahko uporabimo kot vrednost src v <img> oznaki.
 def get_logo_b64() -> str:
     """
     Reads 'zrsvn_logo.png' from disk and returns a base64-encoded string
@@ -95,8 +115,16 @@ def get_logo_b64() -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Endpoints for map usage
+# Definicije dostopnih točk.
 # ─────────────────────────────────────────────────────────────────────────────
+# GET dostopna točka, ki na zahtevo vrne vse geometrijske točke iz tabele 'najdbe',
+# ki so povezane s katerim od PDF dokumentov.
+# Ker je teh točk lahko veliko se jih pošilja v obliki toka (StreamingResponse). Na
+# ta način se omogoči takojšnji prikaz prvih izmed prejetih podatkov, tudi če se jih
+# en del še prenaša. Alternativa bi bila čakanje na to, da bi se zbralo najprej
+# vse točke skupaj in potem naenkrat poslalo klientu. Slednja rešitev ni optimalna
+# saj hitreje vodi do zamikov pri pošiljanju in k večji porabi pomnilnika na strani
+# strežnika.
 @app.get("/get_all_points/")
 def get_all_points():
     """
@@ -111,7 +139,7 @@ def get_all_points():
     """
 
     try:
-        # Open a new cursor for this function call
+        # Uporabimo nov kurzor znotraj funkcije, da ne motimo globalnega stanja.
         with conn.cursor() as cursor:
             cursor.execute(query)
             results = cursor.fetchall()
@@ -120,14 +148,16 @@ def get_all_points():
                 print("[DEBUG] Query executed, but no results were returned.")
                 return {"message": "No points found in the database."}
 
+            # Generator, ki na podlagi vrstic poizvedbe sestavi JSON objekt s koordinatami točk.
             def generate():
                 for row in results:
-                    if row[0]:  # Check if row contains valid GeoJSON
+                    # Preverimo ali se v odgovoru nahaja GeoJSON.
+                    if row[0]:
                         yield json.dumps({
                             "type": "Point",
                             "coordinates": json.loads(row[0])["coordinates"]
                         }) + "\n"
-
+            # Prek StreamingResponse v HTTP odzivu pošljemo vsako vrstico posebej.
             return StreamingResponse(generate(), media_type="application/json")
 
     except psycopg2.ProgrammingError as e:
@@ -140,8 +170,25 @@ def get_all_points():
         conn.rollback()  # Roll back in case of an error
         return {"error": f"General database error: {str(e)}"}
 
-@app.get("/get_filenames/")
-def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float):
+# GET dostopna točka, ki preveri katere točke najdišč vrst 
+# (vezane na naše datoteke) se nahajajo znotraj
+# robnega okvirja (tj. bounding boxa), ki ga je na zemljevid narisal uporabnik.
+# - Če so vsi štirje parametri None (tj. uporabnik na zemljevid ni vnesel robnega 
+#   okvirja; ta možnost je v podpisu funkcije poudarjena prek tipa Optional iz knjižnice
+#   typing) vrnemo vse datoteke.
+# - Če so parametri zapolnjeni:
+#       - Ustvarimo robni okvir v globalni projekciji EPSG:4326 prek PostGIS 
+#         funkcije ST_MakeEnvelope in ga transformiramo v lokalno projekcijo 
+#         EPSG:3794.
+#       - Poiščemo vse datoteke, ki imajo vsaj eno 'najdbe' točko znotraj robnega okvirja.
+#       - Izbrane datoteke zapišemo v tabelo 'selected_files_log'.
+@app.get("/get_files/")
+def get_files(
+    min_lat: Optional[float] = None,
+    max_lat: Optional[float] = None,
+    min_lon: Optional[float] = None,
+    max_lon: Optional[float] = None,
+):
     """
     GET endpoint that determines which files (in table 'files') fall within 
     the user-drawn bounding box. Then logs those filenames into 'selected_files_log'.
@@ -149,9 +196,11 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
     all files will be selected.
     """
     if None in (min_lat, max_lat, min_lon, max_lon):  # Case: App starts
-        cur.execute("SELECT filename FROM files;")
+        cur.execute("SELECT id FROM files;")
         results = cur.fetchall()
     else:
+        # TODO Transformacija v pravi lokalni koordinatni sistem ali 
+        # obstaja novejši za Slovenijo?
         query = """
           WITH bbox_3794 AS (
             SELECT ST_Transform(
@@ -159,93 +208,108 @@ def get_filenames(min_lat: float, max_lat: float, min_lon: float, max_lon: float
                      3794
                    ) AS geom
           )
-          SELECT DISTINCT f.filename
+          SELECT DISTINCT f.id
           FROM rag_najdbe.files AS f
           JOIN rag_najdbe.najdbe AS n
             ON f.id = n.file_id
           JOIN bbox_3794
             ON ST_Within(n.wkb_geometry, bbox_3794.geom);
         """
-        cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
 
         cur.execute(query, (min_lon, min_lat, max_lon, max_lat))
         results = cur.fetchall()
 
-        if not results:  # Case: No files in the selected region
-            cur.execute("SELECT filename FROM files;")
+        if not results:
+            cur.execute("SELECT id FROM files;")
             results = cur.fetchall()
     
-    filenames = []
+    file_ids = []
     for row in results:
-        filenames.append(row[0])
+        file_ids.append(row[0])
 
+    # Počistimo morebitne obstoječe vnose v selected_files_log in zapišemo nove.
     cur.execute("DELETE FROM selected_files_log;")
-    for fn in filenames:
-        cur.execute("INSERT INTO selected_files_log (filename) VALUES (%s);", (fn,))
+    for fid in file_ids:
+        cur.execute("INSERT INTO selected_files_log (file_id) VALUES (%s);", (fid,))
     conn.commit()
 
-    return {"selected_filenames": filenames}
+    return {"selected_files": file_ids}
 
-@app.get("/get_selected_filenames/")
-def get_selected_filenames():
+# GET dostopna točka, ki prebere vse datoteke iz 'selected_files_log' in jih vrne kot JSON.
+@app.get("/get_selected_files/")
+def get_selected_files():
     """
-    Return all filenames currently in 'selected_files_log'.
+    Return all files currently in 'selected_files_log'.
     """
-    cur.execute("SELECT filename FROM selected_files_log;")
+    cur.execute("SELECT file_id FROM selected_files_log;")
     rows = cur.fetchall()
-    filenames = [row[0] for row in rows]
-    return {"selected_filenames": filenames}
+    file_ids = [row[0] for row in rows]
+    return {"selected_files": file_ids}
 
-@app.post("/reset_selected_filenames/")
-def reset_selected_filenames():
-    """
-    Clears all entries in `selected_files_log`.
-    """
-    try:
-        cur.execute("DELETE FROM selected_files_log;")
-        conn.commit()
-        return {"message": "Selected files reset."}
-    except Exception as e:
-        return {"error": f"Failed to reset selected files: {str(e)}"}
+# TODO To vprašanje, če sploh še potrebujemo.
+# POST endpoint, ki pobriše vse vnose iz 'selected_files_log'.
+# Uporabi se za ponastavitev izbire.
+# @app.post("/reset_selected_files/")
+# def reset_selected_files():
+#     """
+#     Clears all entries in 'selected_files_log'.
+#     """
+#     try:
+#         cur.execute("DELETE FROM selected_files_log;")
+#         conn.commit()
+#         return {"message": "Selected files reset."}
+#     except Exception as e:
+#         return {"error": f"Failed to reset selected files: {str(e)}"}
     
+# POST dostopna točka, ki pobriše vse vnose v 'selected_files_log' in nato vanjo
+# vpiše vse datoteke iz tabele 'files'. Uporabi se ob zagonu/ponovni osvežitvi strani in ob kliku
+# na gumb za odstranitev robnega okvirja.
 @app.post("/reset_to_all_files/")
 def reset_to_all_files():
     """
     Forcefully resets 'selected_files_log' so that all files from 'files'
     become selected. This runs whenever the page is refreshed.
     """
-    # Clear old selections
     cur.execute("DELETE FROM selected_files_log;")
-    # Insert all files
-    cur.execute("INSERT INTO selected_files_log (filename) SELECT filename FROM files;")
+
+    cur.execute("INSERT INTO selected_files_log (file_id) SELECT id FROM files;")
     conn.commit()
 
     return {"message": "Selection reset to all files."}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Mount templates directory for the Leaflet map
+# Serviramo statične datoteke iz mape templates (tj. omogočimo, da je map.html na voljo prek URLja oz. 
+# dostopna brskalniku).
 app.mount("/templates", StaticFiles(directory="templates"), name="templates")
+# Integracija Jinja2 predlog (ang. templates) v FastAPI. Ustvarimo objekt templates, s katerim lahko znotraj
+# dostopnih točk dinamično generiramo strani iz HTML predlog.
 templates = Jinja2Templates(directory="templates")
 
+# GET dostopna točka za streženje strani z Leaflet zemljevidom (map.html).
 @app.get("/map")
 def serve_map(request: Request):
     """
     Serves the Leaflet map from map.html.
     """
+    # request je objekt, ki ga FastAPI samodejno poda funkciji dostopne točk, ko ta naredi
+    # HTTP zahtevek na /map. Na podlagi tega objekta lahko Jinja2Templates poskrbi za dinamično 
+    # renderiranje HTML strani.
     return templates.TemplateResponse("map.html", {"request": request})
 
+# Generiranje vnaprej podpisanega (ang. presigned) URLja, ki kaže na določeno posamezno stran PDF dokumenta.
 def generate_presigned_url(file_key, page_number):
     """
     Generates a presigned URL to access a specific file, appending a page anchor.
     """
 
     if file_key is None:
-        return None  # No presigned URL for missing S3 link
+        return None
 
     try:
         presigned_url = s3_client.presigned_get_object(
             bucket_name,
             file_key,
+            # Povezava je aktualna eno uro.
             expires=timedelta(hours=1)
         )
         return f"{presigned_url}#page={page_number}"
@@ -253,68 +317,40 @@ def generate_presigned_url(file_key, page_number):
         print(f"Error generating link: {e}")
         return None
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Feedback & Chatbot
-feedback_csv = "custom_log.csv"
+# Nastavitve za interakcijo s pogovornim robotom (ang. chatbot) in beleženje 
+# povratnih informacij uporabnikov.
+# ─────────────────────────────────────────────────────────────────────────────
+feedback_csv = "user_comment_log.csv"
+# Če datoteka še ne obstaja jo ustvarimo, pri čimer določimo vsebino vrhnje vrstice.
 if not os.path.exists(feedback_csv):
     with open(feedback_csv, mode='w', newline='', encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["Timestamp", "Chat History", "User Comment", "Index"])
 
+# Za shranjevanje pogovorov med uporabnikom in LLMom.
 global_chat_history = []
 
-# global_search_method = "Hybrid"
+# Privzeti način iskanja.
 global_search_method = "Hibridni"
-
+# Privzeto število kontekstualnih elementov (k).
 global_k_context_items = 5
 
+# Posodobi globalno izbrano metodo iskanja, ko uporabnik spremeni izbiro znotraj Gradio uporabniškega vmesnika.
 def update_search_method(search_method):
     global global_search_method
     global_search_method=search_method
-
+# Posodobi globalno število kontekstualnih elementov, v skladu s tem, kar v Gradiu up. vm. nastavi uporabnik.
 def update_context_k(k):
     global global_k_context_items
     global_k_context_items=k
 
-# In place for possible future use if user feedback will problematise referals to chat history.
-# def check_query(original_query):
-#     system_prompt = (
-#         "You are an advanced query checking assistant that checks if user queries "
-#         "demand refering to the history of the chat or not. "
-#         "If yes, return 'True', if no, return 'False'. Do this for the following user query:"
-#     )
-#     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-#     response = client.chat.completions.create(
-#         model="gpt-4o-mini",
-#         messages=[
-#             {"role": "system", "content": system_prompt},
-#             {"role": "user", "content": original_query}
-#         ],
-#         temperature=0.3
-#     )
-#     return response.choices[0].message.content.strip()
-    
-
-#We leave query rewriting aside for now, as the used cgpt model is strong enough
-#to manage typos etc., while domain specific rewriting seems unnecessary at this stage.
-def rewrite_query(original_query):
-    system_prompt = (
-        "You are an advanced query rewriting assistant that refines user queries "
-        "to improve clarity, retrieval effectiveness, and relevance while maintaining "
-        "the original intent and language. Do this with the following user query:"
-    )
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": original_query}
-        ],
-        temperature=0.3
-    )
-    return response.choices[0].message.content.strip()
-
+# Pridobi dodatne kontekstualne elemente iz iskalnega sistema (run_search)
+# in oblikuje prompt za LLM, ki vključuje:
+#   - [CHUNK_TEXT]
+#   - [SECTION_SUMMARY]
+#   - [FILE_SUMMARY]
+# Če je global_k_context_items == 0, vrne sporočilo, da je treba povečati število kontekstnih elementov.
 def add_context(query):
     """
     Retrieves relevant context from `run_search` and formats it into a prompt.
@@ -324,24 +360,21 @@ def add_context(query):
     2. Proper error handling in case of unexpected return values.
     """
 
-    #We check if global_k_context_items is equal to 0. If yes,
-    #we bypass running search_result and set results_md to "To display context items the 'Number of context items' should be set to bigger then zero."
-    #and prompt_with_context to "ZERO_K"
-    #If not, we continue with the rest of the code.
-
     if global_k_context_items == 0:
-        return "To display context items the 'Number of context items' should be set to bigger then zero.", "ZERO_K"
+        return "Za prikaz kontekstualnih elementov mora biti »Število kontekstualnih elementov« nastavljeno na večje od nič.", "ZERO_K"
     else:
-    
+        # Pokličemo run_search, da dobimo spodnji par vrednosti:
+        # - Znakovni niz v obliki Markdown.
+        # - Seznam rezultatov (od katerih je vsak v obliki slovarja).
         search_result = run_search(query, global_search_method, global_k_context_items)
 
         if not isinstance(search_result, tuple) or len(search_result) != 2:
-            raise ValueError(f"Unexpected return value from run_search: {search_result}")
+            raise ValueError(f"Nepričakovan rezultat iskanja: {search_result}")
 
         results_md, results_list = search_result
 
         if not isinstance(results_list, list):
-            raise ValueError(f"Expected list for results_list but got: {type(results_list)}")
+            raise ValueError(f"Rezultate smo pričakovali v obliki seznama, vendar smo dobili nekaj drugega: {type(results_list)}")
 
         # if not results_list:
         #     return "No relevant context found."
@@ -350,27 +383,26 @@ def add_context(query):
         section_summaries = []
         file_summaries = []
 
-        # Populating the lists
+        # Iz vsakega elementa prejetega rezultata iskanja izločimo besedilni blok na podlagi katerega
+        # je prišlo do ujemanja z iskalno poizvedbo (chunk_text) in oba z njim povezana povzetka (section_summary, 
+        # file_summary).
         for item in results_list:
             chunk_texts.append(item["chunk_text"])
             section_summaries.append(item["section_summary"])
             file_summaries.append(item["file_summary"])
 
-        # Initializing the context string
+        # Vse elemente sestavimo skupaj v željeni format.
         context = ""
-
-        # Iterating through the lists and appending formatted content
         for i in range(len(chunk_texts)):
             context += f"[CHUNK_TEXT]:\n{chunk_texts[i]}\n"
             context += f"[SECTION_SUMMARY]:\n{section_summaries[i]}\n"
             context += f"[FILE_SUMMARY]:\n{file_summaries[i]}\n\n"
 
-        # If there are no chunk texts, set a default message
+        # Če iskanje ni vrnilo rezultatov vrnemo niz, ki to sporoči LLMu.
         if not chunk_texts:
             context = "No relevant context items found."
-
-        # query_references_chat_history = check_query(query)
-
+        
+        # Osnovni poziv, ki vključuje kontekstualne elemente in uporabnikovo poizvedbo.
         base_prompt = (
             "With your general knowledge and with the help of the following context items, please answer the query. "
             "Give yourself room to think by extracting relevant passages from the context before answering the query. "
@@ -385,90 +417,47 @@ def add_context(query):
             "Answer:"
         )
 
-
-
-        # In place for possible future use if user feedback will problematise referals to chat history.
-        # if query_references_chat_history:
-        #     base_prompt = (
-        #         "With your general knowledge and with the help of the following context items, please answer the query. "
-        #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
-        #         "Don't return the thinking, only return the answer. "
-        #         "Make sure your answers are as explanatory as possible.\n\n"
-
-        #         "Context items:\n"
-        #         "{context}\n\n"
-
-        #         "User query: {query}\n\n"
-
-        #         "Answer:"
-        #     )
-        # else:
-        #     base_prompt = (
-        #         "With your general knowledge and with the help of the following context items, please answer the query. "
-        #         "Give yourself room to think by extracting relevant passages from the context before answering the query. "
-        #         "Don't return the thinking, only return the answer. "
-        #         "Make sure your answers are as explanatory as possible.\n\n"
-
-        #         "Context items:\n"
-        #         "{context}\n\n"
-
-        #         "User query: {query}\n\n"
-
-        #         "Answer:"
-        #     )
-
         prompt_with_context = base_prompt.format(context=context, query=query)
         print(prompt_with_context)
 
         return results_md, prompt_with_context
 
+# Funkcija, ki jo kliče Gradio ChatInterface ob vsaki posredovani poizvedbi uporabnika.
+# - Pripravi sporočilo za LLM (s kontekstom ali brez).
+# - Pošlje sporočilo Azure OpenAI (GPT-4o-mini) in odgovor poda v toku (ang. streaming response).
+# - Vzdržuje spomin celotnega pogovora (prek global_chat_history) za kasnejši zapis v CSV datoteko.
+# Parametri:
+# - message: Aktualna poizvedba uporabnika.
+# - history: Zgodovina pogovora. 
 def predict(message, history):
     global global_chat_history
 
     if history is None:
         history = []
 
-    #rewritten_query = rewrite_query(message)
-
+    # Pridobimo rezultate iskanja in poziv z dodanimi kontekstualnimi elementi.
     results_md, query_with_context = add_context(message)
 
-    # In place for possible future use if user feedback will problematise referals to chat history.
-    # system_prompt_content = """You are a helpful AI assistant. Your goal is to provide helpful, accurate, and safe responses to user queries. You have access to an external retrieval system to enhance your responses with relevant documents.
-
-    # - If retrieval results are available, prioritize incorporating relevant extracted information into your response.
-    # - Clearly differentiate between retrieved knowledge and your internal knowledge. Cite sources when applicable.
-    # - If retrieved documents do not contain relevant information, inform the user and fall back on your internal knowledge.
-    # - Do not hallucinate sources or fabricate references. If uncertain, state so explicitly.
-    # - If a user asks for real-time or external information, direct them to relevant sources or inform them that you do not have current data.
-    # - When responding, consider not only the retrieved context but also the broader conversation history and any relevant details from the ongoing interaction.
-    # - If the user’s query relates to prior messages in the conversation, incorporate relevant context from the chat history alongside retrieved information.
-    # - If there is ambiguity in whether the user is referring to retrieved content, chat history, or broader context, seek clarification before responding.
-    # """
-
+    # Sistemsko sporočilo za LLM s katerim uravnavamo njegovo splošno vedenje.
     system_prompt_content = """You are a helpful AI assistant. Always respond in Slovenian unless the context clearly requires another language for better understanding or relevance."""
     system_prompt = {
         "role": "system",
         "content": system_prompt_content
     }
-    messages = [system_prompt]  # Start with system prompt
-    # messages = []
-
+    # Sporočilo, ki ga bomo posredovali LLMu se bo pričelo s sistemskim sporočilom.
+    messages = [system_prompt]
+    # K sporočilu dodamo zgodovino pogovora, če ta obstaja.
     for h in history:
         messages.append({"role": h["role"], "content": h["content"]})
-
+    # Če je iskalna poizvedba (prek add_context -> run_search) bila uspešna, oplemenitimo aktualno uporabnikovo
+    # poizvedbo s kontekstualnimi elementi. V nasprotnem primeru k sporočilu pripnemo samo iskalno poizvedbo.
     if query_with_context != "ZERO_K":
         messages.append({"role": "user", "content": query_with_context})
     else:
         messages.append({"role": "user", "content": message})
 
-    # OPENAI standard client
-    # client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-    # Azure OPENAI client
+    # Inicializiramo Azure OpenAI klienta.
     endpoint = os.getenv("ZRSVN_AZURE_OPENAI_ENDPOINT")
-    # model_name = "gpt-4o-mini"
-    # deployment = "gpt-4o-mini"
-
     subscription_key = os.getenv("ZRSVN_AZURE_OPENAI_KEY")
     api_version = "2024-12-01-preview"
 
@@ -478,12 +467,14 @@ def predict(message, history):
         api_key=subscription_key,
     )
 
+    # Prek Logfire nastavimo beleženje telemetričnih podatkov.
     logfire.configure(
         send_to_logfire=False, 
         service_name="zrsvn-rag"
     )
     logfire.instrument_openai(client)
 
+    # Na Azure OpenAI pošljemo zahtevek po tokovno podanem odgovoru.
     stream = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages,
@@ -491,46 +482,49 @@ def predict(message, history):
         stream=True
     )
 
+    # Tu bomo hranili vse prejete dele odgovora LLMa skupaj.
     chunks = []
 
-    # Log user input first
+    # V globalno zgodovino pogovora zabeležimo najprej uporabnikovo aktualno poizvedbo.
     global_chat_history.append({
         "role": "user",
         "content": message,
-        "original_content": message
     })
 
-    # Append an empty assistant response, to be filled incrementally
+    # V globalno zgodovino pogovora dodamo prazen vnos, ki se v nadaljevanju postopoma polni z odgovorom LLMa. 
     global_chat_history.append({
         "role": "assistant", 
         "content": ""
     })
 
     for chunk in stream:
-        # We handle cases where we receive an empty choice/response.
+        # Varnostni ukrep s katerim preverjamo ali trenutni delček (chunk) odgovora vsebuje uporabne informacije (choices).
+        # Če ne, izpišemo opozorilo in gremo na naslednji delček.
         if not chunk.choices:
             print("Empty choices received:", chunk)
             continue
+        # Pod spremenljivko delta shranimo prvi element delčka odgovora. Če je ta prazen oz. None nastavimo delta na 
+        # prazen niz ("").
         delta = chunk.choices[0].delta.content or ""
+        # Delček odgovora shranimo na seznam chunks.
         chunks.append(delta)
-        # Update last assistant message incrementally
+        # Posodobimo zadnji zapis v globalni zgodovini pogovora s trenutno aktualnim delčkom odgovora.
         global_chat_history[-1]["content"] += delta
+        # Vse do tega trenutka prejete delčke odgovora združimo v enoten znakovni niz.
         full_response = "".join(chunks)
+        # Funkcija je generator - z yield postopoma oddajamo vrednosti dveh spremenljivk:
+        # - full_response predstavlja odgovor, ki se znotraj pogovornega okna sproti tekoče prikazuje uporabniku. 
+        # - results_md se enači z search_results_md znotraj build_gradio_interface(). Njeno vrednost se uporabi
+        #   znotraj Gradio Accordion komponente za prikaz kontekstualnih elementov, ki so prispevali k odgovoru.
         yield full_response, results_md
+        # Dodamo kratek zamik za lepši prikaz odgovora.
         time.sleep(0.025)
 
-    # # Save user input and then assistant input to global_chat_history
-    # global_chat_history.append({
-    #     "role": "user",
-    #     "content": message,
-    #     "original_content": message
-    # })
-
-    # global_chat_history.append({
-    #     "role": "assistant",
-    #     "content": "".join(chunks)
-    # })
-
+# Zabeleži uporabnikove povratne informacije in celotno zgodovino pogovora v CSV datoteko, ki vsebuje:
+# - časovni žig,
+# - zgodovino pogovora (v obliki JSON),
+# - komentar uporabnika,
+# - indeks zadnjega elementa v global_chat_history.
 def handle_feedback(comment):
     global global_chat_history
 
@@ -539,8 +533,6 @@ def handle_feedback(comment):
     chat_history_cleaned = []
     for entry in global_chat_history:
         newdict = {"role": entry["role"], "content": entry["content"]}
-        if "original_content" in entry:
-            newdict["original_content"] = entry["original_content"]
         chat_history_cleaned.append(newdict)
 
     chat_history_json = json.dumps(chat_history_cleaned, ensure_ascii=False)
@@ -554,7 +546,13 @@ def handle_feedback(comment):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Searching logic
+# Iskanje.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Izvede izbrano vrsto iskanja (leksično, semantično ali hibridno) nad besedilnimi bloki (ang. text chunks) in
+# vrne par vrednosti (ang. tuple):
+#   1) Niz znakov v obliki Markdown (niz vsebuje klikabilne povezave).
+#   2) Seznam slovarjev z dodatnimi detajli (chunk_text, section_summary, file_summary itd.)
 def run_search(query_text, search_method, k_results):
     """
     Return a tuple with:
@@ -563,39 +561,40 @@ def run_search(query_text, search_method, k_results):
 
     Ensures that the function always returns exactly two values to prevent unpacking errors.
     """
+    # Če se zgodi, da uporabnik ni vnesel poizvedbe ali metoda iskanja ni izbrana potem namesto Markdowna
+    # s kontekstualnimi elementi in seznama rezultatov vrnemo niz z navodilom in prazen seznam.
     if not query_text or not search_method:
-        # return "Please enter a query and select a search method.", []
         return "Vnesite poizvedbo in izberite način iskanja.", []
 
+    # Če nimamo podanega (pravilnega) števila kontekstualnih elementov ga
+    # privzeto nastavimo na 5.
     try:
         k = int(k_results)
     except ValueError:
         k = 5
 
-    if search_method == "Lexical":
+    # Pokličemo ustrezno funkcijo iz query_handler.
+    if search_method == "Leksični":
         results = lexical_search_limited_scope(query_text, k=k, db_params=db_params)
-    elif search_method == "Semantic":
+    elif search_method == "Semantični":
         results = semantic_search_limited_scope(query_text, k=k, db_params=db_params)
     else:
         results = hybrid_search_limited_scope(query_text, k=k, db_params=db_params)
 
     if not results:
-        # return "No results found.", []
-        # return "No context items could be displayed. Please refine your question.", []
         return "Iskanje ni vrnilo nobenih kontekstualnih elementov. Poskusite znova, z drugačnim vprašanjem oz. poizvedbo.", []
 
     answers = []
     results_list = []
     file_nr = 1
 
-        # For lexical/semantic: chunk_id, chunk_text, file_name, page_number, score
-        # For hybrid: chunk_id, score, chunk_text, file_name, page_number
+    # Rezultate obdelamo po vrsticah.
     for row in results:
-        # Ensure row has the correct length before unpacking
-        if search_method in ("Lexical", "Semantic"):
+        if search_method in ("Leksični", "Semantični"):
             if len(row) != 8:
                 continue
-            chunk_id, chunk_text, file_name, s3_link, page_number, score, section_summary, file_summary = row
+            chunk_id, score, chunk_text, file_name, s3_link, page_number, section_summary, file_summary = row
+        # Hibridni.
         else:
             if len(row) != 8:
                 continue
@@ -604,22 +603,19 @@ def run_search(query_text, search_method, k_results):
         presigned_url = generate_presigned_url(s3_link, page_number)
 
         if presigned_url:
-            # Markdown with a clickable link:
-            # snippet = f"""File nr. {file_nr}: [{file_name} (page {page_number})]({presigned_url})  
-            # Score: {score:.4f}  
             snippet = f"""Datoteka št. {file_nr}: [{file_name} (stran {page_number})]({presigned_url})  
-            Ocena relevantnosti: {score:.4f}  
+            Ocena relevantnosti: {float(score):.4f}  
             """
         else:
-            # snippet = f"""File nr. {file_nr}: {file_name} (page {page_number})  
-            # Score: {score:.4f}  
             snippet = f"""Datoteka št. {file_nr}: {file_name} (stran {page_number})  
-            Ocena relevantnosti: {score:.4f}  
-            """  # No hyperlink if S3 link is missing
+            Ocena relevantnosti: {float(score):.4f}  
+            """
 
         answers.append(snippet)
 
         result_dict = {
+            # TODO file_number bi lahko uporabili za indic LLMu kakšen je nivo relevantnosti izbranega
+            # kontekstualnega elementa.
             "file_number": file_nr,
             "file_name": file_name,
             "s3_link": s3_link,
@@ -638,27 +634,22 @@ def run_search(query_text, search_method, k_results):
 
     markdown_answers = "\n".join(answers)
 
-    # Join all snippet lines into Markdown
     return markdown_answers, results_list
 
-    # TODO 
-    # Change the queries inside query_handler to also return sections.summary (related to retrieved chunk)
-    # and files.summary (related to retrieved chunk).
-    # Change the prompt to reflect this.
-
-    # # Loti se izdelave preprocessing pipeline-a za qa app.
-
+# GET dostopna točka za pridobitev števila trenutno izbranih datotek iz FastAPI endpoint-a 
+# '/get_selected_filenames/'.
+# Vrne znakovni niz, ki uporabniku sporoči št. trenutno izbranih dokumentov.
 def fetch_selected_docs():
     """
     Returns just a count of the selected filenames, not the full list.
     """
     try:
-        response = requests.get("http://localhost:8000/get_selected_filenames/")
+        response = requests.get("http://localhost:8000/get_selected_files/")
         data = response.json()
-        filenames = data.get("selected_filenames", [])
-        nr_docs = len(filenames)
+        file_ids = data.get("selected_files", [])
+        nr_docs = len(file_ids)
         # return f"Currently selected docs: {nr_docs}"
-        return f"Trenutno izbrani dokumenti: {nr_docs}"
+        return f"Št. trenutno izbranih dokumentov: {nr_docs}"
 
     except Exception as e:
         # return f"Error retrieving selected docs: {e}"
@@ -666,23 +657,16 @@ def fetch_selected_docs():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gradio interface
+# Gradio uporabniški vmesnik.
+# ─────────────────────────────────────────────────────────────────────────────
 def build_gradio_interface():
 
-    logo_b64 = get_logo_b64()  # Convert PNG to base64 once at startup
+    # Ob zagonu pretvorimo logotip v base64 obliko.
+    logo_b64 = get_logo_b64()
 
     with gr.Blocks(title="ZRSVN RAG") as demo:
 
-        # gr.Markdown('<div style="text-align: center; font-size: 24px; font-weight: bold;">ZRSVN RAG</div>')
-        # gr.HTML("""
-        # <div style="display: flex; align-items: center; justify-content: center; padding: 20px;">
-        #     <!-- Cache-busting trick: ?t=999 to avoid stale cached images -->
-        #     <img src="/assets/zrsvn_logo.png?t=999" alt="ZRSVN Logo" style="height:50px; margin-right:15px;">
-        #     <h2 style="margin:0; font-size:24px; line-height:1;">ZRSVN RAG</h2>
-        # </div>
-        # """)
-
-        # Instead of referencing /assets/zrsvn_logo.png, we embed directly:
+        # Vrstica z logotipom in imenom aplikacije.
         gr.HTML(f"""
         <div style="display: flex; align-items: center; justify-content: center; padding: 20px;">
             <img 
@@ -693,10 +677,7 @@ def build_gradio_interface():
             <h2 style="margin:0; font-size:24px; line-height:1;">ZRSVN RAG</h2>
         </div>
         """)
-
-        # We define search_results beforehand so that the md formatted additional output from ChatInterface/predict can be passed to it,
-        # but we do not yet render it.
-        # search_results_md = gr.Markdown("Context items will appear here...", label="Search Results", render=False)
+        # Definiramo Markdown Gradio gradnik kjer bomo prikazali kontekstualne elemente.
         search_results_md = gr.Markdown("Tu se bodo pojavili elementi, ki predstavljajo kontekst pri pripravi odgovora...", label="Rezultati iskanja", render=False)
 
         chat = gr.ChatInterface(
@@ -705,11 +686,11 @@ def build_gradio_interface():
             type="messages",
             theme="ocean",
             flagging_mode="manual",
-            flagging_dir="/mnt/partit1/projects/zrsvn-rag",
+            flagging_dir="/mnt/partit1/fis/mag/zrsvn_rag",
             additional_outputs=[search_results_md]
         )
 
-        # with gr.Accordion(label="✉️ Send feedback", open=False):
+        # Področje za vnašanje povratnih informacij.
         with gr.Accordion(label="✉️ Pošlji povratne informacije", open=False):
             feedback_box = gr.Textbox(
             label="Povratna informacija", 
@@ -718,10 +699,9 @@ def build_gradio_interface():
             feedback_button = gr.Button("Pošlji")
             feedback_button.click(handle_feedback, inputs=[feedback_box], outputs=[feedback_box, feedback_box])
 
-        # with gr.Accordion(label="🌍 Geographically determine scope of documents that are searched over", open=False):
+        # Gradnik znotraj katerega uporabnik določi obseg dokumentov, ki bodo vključeni v iskanje.
+        # To mu omogoča Leaflet zemljevid, ki je v gradnik vstavljen kot iframe element.
         with gr.Accordion(label="🌍 Geografsko določite obseg dokumentov, vključenih v iskanje", open=False):
-            # The map iframe
-            # Geographically determine scope of documents that are searched over
             gr.HTML("""
                 <style>
                     .map-container {
@@ -748,21 +728,17 @@ def build_gradio_interface():
                     <iframe src="http://127.0.0.1:8000/map" scrolling="no"></iframe>
                 </div>
             """)
-            # Button to update the count
-            # show_docs_button = gr.Button("Click to see updated number of currently selected docs")
+            # Gumb, ki ob kliku pokliče fetch_selected_docs in prikaže št. trenutno izbranih dokumentov.
             show_docs_button = gr.Button("Klikni za posodobitev prikaza št. trenutno izbranih dokumentov")
-            # Markdown for displaying the doc count
             docs_text = gr.Markdown()
             show_docs_button.click(fetch_selected_docs, inputs=[], outputs=docs_text)
    
-        # with gr.Accordion(label="⚙️ Context settings", open=False):
+        # Za nastavitve konteksta.
         with gr.Accordion(label="⚙️ Nastavitve konteksta", open=False):
             with gr.Row():
                 search_method = gr.Radio(
-                    # choices=["Lexical", "Semantic", "Hybrid"],
                     choices=["Leksični", "Semantični", "Hibridni"],
                     value=global_search_method,
-                    # label="Search Method",
                     label="Način iskanja",
                     interactive=True
                 )
@@ -771,37 +747,42 @@ def build_gradio_interface():
                     maximum=15,
                     value=global_k_context_items,
                     step=1,
-                    # label="Number of Context Items",
                     label="Število kontekstualnih elementov",
                     interactive=True
                 )
+                # Poskrbimo, da se ob spremembi posodobita globalni spremenljivki.
                 search_method.change(fn=update_search_method, inputs=[search_method], outputs=[])
                 k_slider.change(fn=update_context_k, inputs=[k_slider], outputs=[])
-
-        # We render the md formatted result.
-        # with gr.Accordion(label="📝 View context items", open=False):
+        
+        # Prikaz kontekstualnih elementov.
         with gr.Accordion(label="📝 Preglej kontekstualne elemente", open=False):
             search_results_md.render()
         
-
+        # TODO Po potrebi dopolni.
         with gr.Accordion("📖 Navodila za uporabo", open=False):
             gr.Markdown("""
                 Privzeto so v iskanje vključeni vsi dokumenti.  
-                Z risanjem pravokotnika na zemljevidu lahko omejite  
+                Z risanjem robnega okvirja na zemljevidu lahko omejite  
                 iskanje samo na dokumente, povezane s tem območjem.
             """)
 
-        # Deprecated Search button
-        # Connects search button -> run_search -> search_results_md
-        # search_btn.click(
-        #     fn=lambda query, method, k: run_search(query, method, k)[0],  # Extract only the first return value
-        #     inputs=[query_box, search_method, k_slider],
-        #     outputs=search_results_md
-        # )
-
     return demo
-
 
 if __name__ == "__main__":
     interface = build_gradio_interface()
-    interface.launch(favicon_path="./assets/zrsvn_logo.png", server_name="0.0.0.0", server_port=7950, share=False)
+    interface.launch(
+        favicon_path="./assets/zrsvn_logo.png", 
+        server_name="127.0.0.1", 
+        server_port=7950, 
+        share=False
+    )
+
+# === Povzetek možnih TODO optimizacij ===
+# 1) Globalni seznam global_chat_history lahko postane zelo velik;
+#    - Razmisliti o hranjenju zgodovine le za zadnjih N sporočil ali brisanju po določenem času.
+# 2) Pri zapisovanju feedbacka v CSV:
+#    - Če datoteka raste, bo sčasoma počasna. 
+#    - Razmisliti o rotaciji datotek (npr. dnevna datoteka) ali uporabi baze.
+# 3) run_search z rezultati:
+#    - Če je query_handler počasno, je dobro dodati caching (npr. LRU (Least Recently Used)) pogostih poizvedb.
+# 4) V Gradio UI so CSS inline: lahko premislimo o uporabi ločenih CSS datotek za lažje vzdrževanje.
