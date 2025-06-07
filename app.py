@@ -54,8 +54,8 @@ s3_client = Minio(
 
 # Inicializiramo FastAPI aplikacijo, ki bo sprejemala HTTP zahtevke, z njimi
 # upravljala in vračala odgovore.
-# Objekt app bomo večinoma uporabljali za definicijo dostopnih točk 
-# (ang. endpointov) in serviranje statičnih datotek.
+# Objekt app bomo večinoma uporabljali za definicijo dostopnih točk (ang. endpointov) 
+# in serviranje statičnih datotek.
 app = FastAPI()
 
 from pathlib import Path
