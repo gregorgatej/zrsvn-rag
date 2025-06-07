@@ -2,7 +2,6 @@ import os
 # Uvozimo razred za nalaganje in uporabo BGE-M3 vložitvenega modela.
 from FlagEmbedding import FlagAutoModel
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Naložimo fino nastavljeni BGE-M3 model, ki ga bomo uporabljali
 # za semantično in hibridno iskanje.
 # - "query_instruction_for_retrieval" pomaga modelu razumeti, da naj vektor

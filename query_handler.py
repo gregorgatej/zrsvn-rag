@@ -19,7 +19,6 @@ from model_handling import embedding_model
 # Posebnim znakom (tj. vsem ne-alfanumeričnim znakom) v poizvedbi se izognemo (tj. pred znak dodamo '\'), da preprečimo 
 # ParseError pri leksičnem ali hibridnem iskanju.
 def escape_special_chars(query):
-    """Escapes special characters for full-text search in ParadeDB/PostgreSQL so we don't receive ParseError when running lexical or hybrid search."""
     return re.sub(r'([^\w\s])', r'\\\1', query)  # Escape all non-alphanumeric characters
 
 register_adapter(np.ndarray, lambda arr: AsIs(arr.tolist()))
