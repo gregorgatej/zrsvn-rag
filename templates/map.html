@@ -4,15 +4,15 @@
     <meta charset="UTF-8">
     <title>Map Interface</title>
     
-    <!-- Leaflet CSS & JS -->
+    <!-- Leaflet CSS in JS za prikaz interaktivnih zemljevidov. -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    <!-- Leaflet Draw CSS & JS -->
+    <!-- Leaflet Draw, ki vsebuje orodja za risanje geometrijskih likov na zemljevidu. -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 
-    <!-- Leaflet Marker Cluster CSS & JS -->
+    <!-- Leaflet Marker Cluster za združevanje blizu ležečih markerjev v grozde. -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css">
     <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
@@ -38,24 +38,27 @@
     </style>
 </head>
 <body>
+     <!-- Element za Leaflet zemljevid. -->
     <div id="map"></div>
     <div id="output"></div>
 
     <script>
     document.addEventListener("DOMContentLoaded", function() {
-        // Initialize map
+        // Leaflet zemljevid inicializiramo na koordinatah 46.05, 14.5 (tj. osredinjeno
+        // na Slovenijo), z nivojem povečave nastavljenim na 9.
         var map = L.map('map').setView([46.05, 14.5], 9);
         
-        // Add OpenStreetMap tiles
+        // Dodamo OpenStreetMap kot osnovno plast (ang. layer) zemljevida.
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        // Marker clustering
+        // Ustvarimo grozd markerjev, da se bližnji markerji samodejno združujejo
+        // in ne prekrivajo.
         var markerCluster = L.markerClusterGroup();
         map.addLayer(markerCluster);
 
-        // Force selection of all files on page load/refresh:
+        // // Ob vsaki osvežitvi strani naj bodo privzeto izbrane vse datoteke.
         fetch("http://localhost:8000/reset_to_all_files/", {
             method: "POST"
         })
@@ -65,7 +68,9 @@
         })
         .catch(error => console.error("❌ Error resetting to all files:", error));
 
-        // Fetch points from API
+        // Prek FastAPIja pridobimo podatke o koordinatah vseh točk, 
+        // ki so podani v obliki JSON, kjer je vsak zapis ločen z novo vrstico
+        // (newline-delimited JSON).
         fetch("http://localhost:8000/get_all_points/")
             .then(response => response.text())
             .then(text => {
@@ -82,6 +87,8 @@
                                 [coords[1] + jitter, coords[0] + jitter],
                                 { radius: 2.5, color: "red", fillColor: "red", fillOpacity: 0.7 }
                             ).bindPopup(`Coordinates: ${coords[1]}, ${coords[0]}`);
+                            // Prek tega ukaza posamezen marker dodamo v grozd
+                            // markerjev.
                             markerCluster.addLayer(marker);
                         }
                     } catch (error) {
@@ -91,10 +98,12 @@
             })
             .catch(error => console.error("❌ Fetch Error:", error));
 
-        // Leaflet Draw Tools
+        // Leaflet Draw: dodamo plast, kamor se shranjujejo narisani liki.
         var drawnItems = new L.FeatureGroup();
         map.addLayer(drawnItems);
 
+        // Konfiguracija orodij za risanje: dovolimo le pravokotnike,
+        // oz. robne okvirje.
         var drawControl = new L.Control.Draw({
             draw: {
                 polygon: false,
@@ -107,7 +116,8 @@
         });
         map.addControl(drawControl);
 
-        /* CUSTOM "CLEAR" BUTTON TO RESET DRAWINGS & DOCS   */
+        /* Ustvarimo lasten gumb za čiščenje vsebine ("Clear"): 
+           z njim pobrišemo narisane robne okvirje in ponastavimo izbor dokumentov. */
         var ClearControl = L.Control.extend({
             options: { position: 'topleft' },
             onAdd: function(map) {
@@ -127,28 +137,17 @@
                 L.DomEvent.disableClickPropagation(container);
 
                 container.onclick = function() {
-                    // 1. Clear the drawn rectangles
+                    // Robne okvirje pobrišemo.
                     drawnItems.clearLayers();
 
-                    // 2. Call reset_to_all_files so we again have everything selected
+                    // Izbor ponastavimo na vse datoteke.
                     fetch("http://localhost:8000/reset_to_all_files/", { method: "POST" })
                         .then(response => response.json())
                         .then(data => {
                             console.log("✅ Clear button reset:", data.message);
                         })
                         .catch(error => console.error("❌ Error resetting on clear:", error));
-
-                    // We are currently ommiting this since we are opting for all files
-                    // being chosen when no rectangles are drawn.
-                    // 3. Reset the selected documents on the backend
-                    // fetch("http://localhost:8000/reset_selected_files/", { method: "POST" })
-                    //     .then(response => response.json())
-                    //     .then(data => {
-                    //         console.log("📌 Selected files reset:", data.message);
-                    //     })
-                    //     .catch(error => console.error("❌ Error resetting selected files:", error));
                 };
-
                 return container;
             }
         });
@@ -156,13 +155,16 @@
         // Add the new ClearControl to the map
         map.addControl(new ClearControl());
 
-        /* Handle Map Events for Drawing                                */
+        /* Lovimo dogodek, ko se risanje prične. Ob slednjem dogodku umaknemo grozde
+           točk in morebitne že narisane like. */
         map.on('draw:drawstart', function () {
             console.log("✏️ Drawing started - Hiding clusters");
             map.removeLayer(markerCluster);
             drawnItems.clearLayers();
         });
 
+        /* Lovimo dogodek, ko se risanje konča. Grozde točk pomaknemo nazaj
+           na zemljevid. */
         map.on('draw:drawstop', function () {
             console.log("✅ Drawing stopped - Showing clusters");
             map.addLayer(markerCluster);
@@ -198,7 +200,8 @@
             var minLon = bounds.getSouthWest().lng;
             var maxLat = bounds.getNorthEast().lat;
             var maxLon = bounds.getNorthEast().lng;
-
+            // Pokličemo FastAPI dostopno točko /get_filenames/ s parametri narisanega
+            // robnega okvirja.
             fetch(`http://localhost:8000/get_files/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
                 .then(response => response.json())
                 .then(data => {
