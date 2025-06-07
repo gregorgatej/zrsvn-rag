@@ -6,7 +6,6 @@ import psycopg2
 import requests
 from datetime import timedelta
 from minio import Minio
-import openai
 from openai import AzureOpenAI
 # Za beleženje povratnih informacij.
 import csv
@@ -68,14 +67,10 @@ assets_path = here / "assets"
 
 app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 
-
 # Ker odjemalski del teče na drugem portu kot zaledni del
 # aplikacije moramo omogočiti CORS (Cross-Origin Resource Sharing). Brez slednjega* brskalnik ne dovoli odjemalskemu
 # delu naše aplikacije, da bi prejela odgovor na GET zahtevo po vseh relevantnih geografskih točkah, zaradi česar se
 # te ne prikažejo na vgnezdenem zemljevidu. 
-# TODO Glede na to, da je zemljevid v map.html vgnezden v Gradio frontend prek iframe in da se Javascript fetch 
-# zahtevki dogajajo prek map.html cross-origin ne bi smel veljati. V praksi pa brez spodnjega dela kode prikaz točk
-# ne deluje. Kje je razlog?
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:8000"],
@@ -99,11 +94,6 @@ cur = conn.cursor()
 # Prebere 'zrsvn_logo.png' iz mape assets in vrne base64 niz,
 # ki ga lahko uporabimo kot vrednost src v <img> oznaki.
 def get_logo_b64() -> str:
-    """
-    Reads 'zrsvn_logo.png' from disk and returns a base64-encoded string
-    that can be directly embedded in an <img> tag.
-    """
-    
     here = Path(__file__).parent.resolve()
     logo_path = here / "assets" / "zrsvn_logo.png"
     
@@ -112,7 +102,6 @@ def get_logo_b64() -> str:
     b64_data = base64.b64encode(data).decode("utf-8")
     
     return b64_data
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Definicije dostopnih točk.
@@ -127,11 +116,6 @@ def get_logo_b64() -> str:
 # strežnika.
 @app.get("/get_all_points/")
 def get_all_points():
-    """
-    GET endpoint that retrieves all geometry points in 'najdbe' table 
-    and streams them back as newline-delimited JSON.
-    """
-    # TODO This needs to be tested, since WHERE clause has been newly added
     query = """
         SELECT ST_AsGeoJSON(ST_Transform(wkb_geometry, 4326)) AS geom
         FROM najdbe
@@ -189,18 +173,10 @@ def get_files(
     min_lon: Optional[float] = None,
     max_lon: Optional[float] = None,
 ):
-    """
-    GET endpoint that determines which files (in table 'files') fall within 
-    the user-drawn bounding box. Then logs those filenames into 'selected_files_log'.
-    If no selection is made (on startup) or if no files are found in the selection, 
-    all files will be selected.
-    """
     if None in (min_lat, max_lat, min_lon, max_lon):  # Case: App starts
         cur.execute("SELECT id FROM files;")
         results = cur.fetchall()
     else:
-        # TODO Transformacija v pravi lokalni koordinatni sistem ali 
-        # obstaja novejši za Slovenijo?
         query = """
           WITH bbox_3794 AS (
             SELECT ST_Transform(
@@ -238,38 +214,18 @@ def get_files(
 # GET dostopna točka, ki prebere vse datoteke iz 'selected_files_log' in jih vrne kot JSON.
 @app.get("/get_selected_files/")
 def get_selected_files():
-    """
-    Return all files currently in 'selected_files_log'.
-    """
     cur.execute("SELECT file_id FROM selected_files_log;")
+
     rows = cur.fetchall()
     file_ids = [row[0] for row in rows]
-    return {"selected_files": file_ids}
 
-# TODO To vprašanje, če sploh še potrebujemo.
-# POST endpoint, ki pobriše vse vnose iz 'selected_files_log'.
-# Uporabi se za ponastavitev izbire.
-# @app.post("/reset_selected_files/")
-# def reset_selected_files():
-#     """
-#     Clears all entries in 'selected_files_log'.
-#     """
-#     try:
-#         cur.execute("DELETE FROM selected_files_log;")
-#         conn.commit()
-#         return {"message": "Selected files reset."}
-#     except Exception as e:
-#         return {"error": f"Failed to reset selected files: {str(e)}"}
+    return {"selected_files": file_ids}
     
 # POST dostopna točka, ki pobriše vse vnose v 'selected_files_log' in nato vanjo
 # vpiše vse datoteke iz tabele 'files'. Uporabi se ob zagonu/ponovni osvežitvi strani in ob kliku
 # na gumb za odstranitev robnega okvirja.
 @app.post("/reset_to_all_files/")
 def reset_to_all_files():
-    """
-    Forcefully resets 'selected_files_log' so that all files from 'files'
-    become selected. This runs whenever the page is refreshed.
-    """
     cur.execute("DELETE FROM selected_files_log;")
 
     cur.execute("INSERT INTO selected_files_log (file_id) SELECT id FROM files;")
@@ -277,7 +233,6 @@ def reset_to_all_files():
 
     return {"message": "Selection reset to all files."}
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Serviramo statične datoteke iz mape templates (tj. omogočimo, da je map.html na voljo prek URLja oz. 
 # dostopna brskalniku).
 app.mount("/templates", StaticFiles(directory="templates"), name="templates")
@@ -288,9 +243,6 @@ templates = Jinja2Templates(directory="templates")
 # GET dostopna točka za streženje strani z Leaflet zemljevidom (map.html).
 @app.get("/map")
 def serve_map(request: Request):
-    """
-    Serves the Leaflet map from map.html.
-    """
     # request je objekt, ki ga FastAPI samodejno poda funkciji dostopne točk, ko ta naredi
     # HTTP zahtevek na /map. Na podlagi tega objekta lahko Jinja2Templates poskrbi za dinamično 
     # renderiranje HTML strani.
@@ -298,10 +250,6 @@ def serve_map(request: Request):
 
 # Generiranje vnaprej podpisanega (ang. presigned) URLja, ki kaže na določeno posamezno stran PDF dokumenta.
 def generate_presigned_url(file_key, page_number):
-    """
-    Generates a presigned URL to access a specific file, appending a page anchor.
-    """
-
     if file_key is None:
         return None
 
@@ -352,14 +300,6 @@ def update_context_k(k):
 #   - [FILE_SUMMARY]
 # Če je global_k_context_items == 0, vrne sporočilo, da je treba povečati število kontekstnih elementov.
 def add_context(query):
-    """
-    Retrieves relevant context from `run_search` and formats it into a prompt.
-    
-    Ensures:
-    1. `run_search` returns the expected two values.
-    2. Proper error handling in case of unexpected return values.
-    """
-
     if global_k_context_items == 0:
         return "Za prikaz kontekstualnih elementov mora biti »Število kontekstualnih elementov« nastavljeno na večje od nič.", "ZERO_K"
     else:
@@ -375,9 +315,6 @@ def add_context(query):
 
         if not isinstance(results_list, list):
             raise ValueError(f"Rezultate smo pričakovali v obliki seznama, vendar smo dobili nekaj drugega: {type(results_list)}")
-
-        # if not results_list:
-        #     return "No relevant context found."
 
         chunk_texts = []
         section_summaries = []
@@ -544,23 +481,14 @@ def handle_feedback(comment):
 
     return "", gr.update(placeholder="Povratna informacija uspešno zabeležena. Lahko vnesete novo mnenje ali komentar...")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Iskanje.
 # ─────────────────────────────────────────────────────────────────────────────
-
 # Izvede izbrano vrsto iskanja (leksično, semantično ali hibridno) nad besedilnimi bloki (ang. text chunks) in
 # vrne par vrednosti (ang. tuple):
 #   1) Niz znakov v obliki Markdown (niz vsebuje klikabilne povezave).
 #   2) Seznam slovarjev z dodatnimi detajli (chunk_text, section_summary, file_summary itd.)
 def run_search(query_text, search_method, k_results):
-    """
-    Return a tuple with:
-    1. A Markdown string containing clickable links
-    2. A list of result dictionaries
-
-    Ensures that the function always returns exactly two values to prevent unpacking errors.
-    """
     # Če se zgodi, da uporabnik ni vnesel poizvedbe ali metoda iskanja ni izbrana potem namesto Markdowna
     # s kontekstualnimi elementi in seznama rezultatov vrnemo niz z navodilom in prazen seznam.
     if not query_text or not search_method:
@@ -640,9 +568,6 @@ def run_search(query_text, search_method, k_results):
 # '/get_selected_filenames/'.
 # Vrne znakovni niz, ki uporabniku sporoči št. trenutno izbranih dokumentov.
 def fetch_selected_docs():
-    """
-    Returns just a count of the selected filenames, not the full list.
-    """
     try:
         response = requests.get("http://localhost:8000/get_selected_files/")
         data = response.json()
@@ -655,12 +580,10 @@ def fetch_selected_docs():
         # return f"Error retrieving selected docs: {e}"
         return f"Napaka pri pridobivanju izbranih dokumentov: {e}"
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Gradio uporabniški vmesnik.
 # ─────────────────────────────────────────────────────────────────────────────
 def build_gradio_interface():
-
     # Ob zagonu pretvorimo logotip v base64 obliko.
     logo_b64 = get_logo_b64()
 
@@ -758,7 +681,6 @@ def build_gradio_interface():
         with gr.Accordion(label="📝 Preglej kontekstualne elemente", open=False):
             search_results_md.render()
         
-        # TODO Po potrebi dopolni.
         with gr.Accordion("📖 Navodila za uporabo", open=False):
             gr.Markdown("""
                 Privzeto so v iskanje vključeni vsi dokumenti.  
@@ -776,13 +698,3 @@ if __name__ == "__main__":
         server_port=7950, 
         share=False
     )
-
-# === Povzetek možnih TODO optimizacij ===
-# 1) Globalni seznam global_chat_history lahko postane zelo velik;
-#    - Razmisliti o hranjenju zgodovine le za zadnjih N sporočil ali brisanju po določenem času.
-# 2) Pri zapisovanju feedbacka v CSV:
-#    - Če datoteka raste, bo sčasoma počasna. 
-#    - Razmisliti o rotaciji datotek (npr. dnevna datoteka) ali uporabi baze.
-# 3) run_search z rezultati:
-#    - Če je query_handler počasno, je dobro dodati caching (npr. LRU (Least Recently Used)) pogostih poizvedb.
-# 4) V Gradio UI so CSS inline: lahko premislimo o uporabi ločenih CSS datotek za lažje vzdrževanje.

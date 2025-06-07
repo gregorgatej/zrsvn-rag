@@ -22,7 +22,6 @@ def escape_special_chars(query):
     """Escapes special characters for full-text search in ParadeDB/PostgreSQL so we don't receive ParseError when running lexical or hybrid search."""
     return re.sub(r'([^\w\s])', r'\\\1', query)  # Escape all non-alphanumeric characters
 
-# Register numpy adapters so we can easily store/fetch arrays
 register_adapter(np.ndarray, lambda arr: AsIs(arr.tolist()))
 register_adapter(np.float32, lambda val: AsIs(val))
 register_adapter(np.float64, lambda val: AsIs(val))
@@ -36,11 +35,6 @@ register_adapter(np.float64, lambda val: AsIs(val))
   # - k: največje število vrnjenih rezultatov.
   # - db_params: slovar za psycopg2.connect (dbname, user, password, host, port, options).
 def lexical_search_limited_scope(query, k=5, db_params=None):
-    """
-    BM25-like lexical search over text_chunks → paragraphs → section_elements → sections → files,
-    restricted to selected_files_log.
-    Returns tuples: (chunk_id, chunk_text, filename, page_number, score).
-    """
     conn = psycopg2.connect(**db_params)
     cursor = conn.cursor()
     safe_q = escape_special_chars(query)
@@ -106,11 +100,6 @@ def lexical_search_limited_scope(query, k=5, db_params=None):
   # - k: največje število vrnjenih rezultatov.
   # - db_params: slovar za psycopg2.connect (dbname, user, password, host, port, options).
 def semantic_search_limited_scope(query, k=5, db_params=None):
-    """
-    Semantic search via pgvector over embeddings → text_chunks → … → files,
-    restricted to selected_files_log.
-    Returns tuples: (chunk_id, chunk_text, filename, page_number, similarity_score).
-    """
     # Najprej na podlagi poizvedbe generiramo vložitev.
     q_out = embedding_model.encode([query])
     q_vec = np.array(q_out["dense_vecs"], dtype=np.float32).flatten()
@@ -184,12 +173,6 @@ def semantic_search_limited_scope(query, k=5, db_params=None):
   # - semantic_k: koliko je kandidatov, pridobljenih na podlagi semantičnega iskanja.
   # - db_params: slovar za psycopg2.connect (dbname, user, password, host, port, options).
 def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_params=None):
-    """
-    Hybrid search combining BM25 and pgvector scores over the same join path,
-    restricted to selected_files_log.
-    Returns tuples: (chunk_id, chunk_text, filename, page_number, combined_score).
-    """
-    # encode
     q_out = embedding_model.encode([query])
     q_vec = np.array(q_out["dense_vecs"], dtype=np.float32).flatten()
     safe_q = escape_special_chars(query)
@@ -292,6 +275,3 @@ def hybrid_search_limited_scope(query, k=5, lexical_k=20, semantic_k=20, db_para
     cursor.close()
     conn.close()
     return results
-
-    # TODO: FULL OUTER JOIN in RANK() se lahko izkažeta za počasni pri večjih tabelah.
-    #    - Optimizirati s predhodno shranjenimi rang-kandidatnimi tabelami.

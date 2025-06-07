@@ -82,7 +82,7 @@
                         let point = JSON.parse(line);
                         if (point.type === "Point") {
                             let coords = point.coordinates;
-                            let jitter = (Math.random() - 0.5) * 0.0005; // Avoid exact overlap
+                            let jitter = (Math.random() - 0.5) * 0.0005;
                             let marker = L.circleMarker(
                                 [coords[1] + jitter, coords[0] + jitter],
                                 { radius: 2.5, color: "red", fillColor: "red", fillOpacity: 0.7 }
@@ -152,7 +152,6 @@
             }
         });
 
-        // Add the new ClearControl to the map
         map.addControl(new ClearControl());
 
         /* Lovimo dogodek, ko se risanje prične. Ob slednjem dogodku umaknemo grozde

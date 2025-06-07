@@ -18,6 +18,3 @@ embedding_model = FlagAutoModel.from_finetuned(
     use_fp16=False,
     device=["cuda:0"]
 )
-# TODO: Preveriti, ali je GPU vedno na voljo; če ni, samodejno preklopiti na CPU.
-# TODO: Razmisliti o strežnem modelu ali deljenem loaderju, da model naložimo le enkrat
-#    (trenutno bo pri vsakem importu modul naložil model).
