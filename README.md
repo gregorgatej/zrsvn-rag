@@ -41,8 +41,8 @@ Spletna aplikacija z možnostjo leksičnega, semantičnega in hibridnega iskanja
     ```
 
 4. Pripravite PostgreSQL bazo:
-    - Ustvarite bazo `zrsvn` s shemo `rag_najdbe`.
-    - Namestite razširitvi `pgvector` in `paradedb`.
+- Ustvarite bazo `zrsvn` s shemo `rag_najdbe`.
+- Namestite razširitvi `pgvector` in `paradedb`.
 
 ## Zagon aplikacije
 
