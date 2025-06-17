@@ -2,19 +2,10 @@
 
 Spletna aplikacija z možnostjo leksičnega, semantičnega in hibridnega iskanja ter generiranja odgovorov na podlagi izbranih dokumentov.
 
-## O projektu
-
-Sistem implementira RAG (Retrieval Augmented Generation) pristop za iskanje po dokumentih, ki vsebuje naslednje funkcionalnosti:
-
-- **Geografsko filtriranje**: Interaktivni zemljevid za prostorsko zamejitev iskanja.
-- **Večvrsten način iskanja**: Leksično, semantično in hibridno iskanje  
-- **Pogovorni vmesnik**: Gradio ChatInterface z Azure OpenAI integracijo.  
-- **Vektorsko iskanje**: pgvector podpora za semantično podobnost.  
-
 ## Funkcionalnosti
 
 - Interaktivni Leaflet zemljevid za risanje robnih okvirjev.
-- Trije načini iskanja: leksični (BM25), semantični (vektorski) in hibridni (RRF).  
+- Trije načini iskanja: leksični (BM25), semantični (pgvector) in hibridni (RRF).  
 - Pogovorni vmesnik prek Azure OpenAI (privzeto je izbran GPT-4o-mini). 
 - Generiranje presigned URLjev za pregled kontekstualnih PDF dokumentov.  
 - Beleženje povratnih informacij uporabnikov.  
