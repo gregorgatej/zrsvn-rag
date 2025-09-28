@@ -43,7 +43,7 @@ POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 s3_access_key = os.getenv("S3_ACCESS_KEY")
 s3_secret_access_key = os.getenv("S3_SECRET_ACCESS_KEY")
 s3_endpoint_url = "moja.shramba.arnes.si"
-bucket_name = "zrsvn-rag-najdbe"
+bucket_name = "zrsvn-rag-najdbe-najvecji"
 
 s3_client = Minio(
     endpoint=s3_endpoint_url,
@@ -238,6 +238,7 @@ def reset_to_all_files():
 app.mount("/templates", StaticFiles(directory="templates"), name="templates")
 # Integracija Jinja2 predlog (ang. templates) v FastAPI. Ustvarimo objekt templates, s katerim lahko znotraj
 # dostopnih točk dinamično generiramo strani iz HTML predlog.
+# TODO Slednja integracija (trenutno) ni potrebna.
 templates = Jinja2Templates(directory="templates")
 
 # GET dostopna točka za streženje strani z Leaflet zemljevidom (map.html).
@@ -609,7 +610,7 @@ def build_gradio_interface():
             type="messages",
             theme="ocean",
             flagging_mode="manual",
-            flagging_dir="/mnt/partit1/fis/mag/zrsvn_rag",
+            flagging_dir="/mnt/partit1/fis/mag/zrsvn-rag",
             additional_outputs=[search_results_md]
         )
 
