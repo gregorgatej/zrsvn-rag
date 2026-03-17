@@ -1,50 +1,51 @@
 # ZRSVN RAG
 
-Spletna aplikacija z možnostjo leksičnega, semantičnega in hibridnega iskanja ter generiranja odgovorov na podlagi izbranih dokumentov.
+Web application with lexical, semantic, and hybrid search capabilities and answer generation based on selected documents.
 
-## Funkcionalnosti
+## Features
 
-- Interaktivni Leaflet zemljevid za risanje robnih okvirjev.
-- Trije načini iskanja: leksični (BM25), semantični (pgvector) in hibridni (RRF).  
-- Pogovorni vmesnik prek Azure OpenAI (privzeto je izbran GPT-4o-mini). 
-- Generiranje presigned URLjev za pregled kontekstualnih PDF dokumentov.  
-- Beleženje povratnih informacij uporabnikov.  
-- Observability z Logfire integracijo.
+- Interactive Leaflet map for drawing bounding boxes
+- Three search modes: lexical (BM25), semantic (pgvector), and hybrid (RRF)
+- Conversational interface via Azure OpenAI (default model is GPT-4o-mini)
+- Generation of presigned URLs for viewing contextual PDF documents
+- User feedback logging
+- Observability via Logfire integration
 
-## Tehnične zahteve
+## Technical requirements
 
-- Python 3.8+.  
-- PostgreSQL z razširitvama pgvector in ParadeDB. 
-- MinIO/S3 shramba za PDF dokumente.  
-- Azure OpenAI API dostop.  
+- Python 3.8+ 
+- PostgreSQL with the pgvector and ParadeDB extensions
+- MinIO/S3 storage for PDF documents 
+- Azure OpenAI API access
 
-## Namestitev
+## Installation
 
-1. Klonirajte repozitorij:
+1. Clone the repository:
     ```bash
     git clone https://github.com/gregorgatej/zrsvn-rag.git
     cd zrsvn-rag
     ```
 
-2. Namestite odvisnosti:
+2. Install dependencies:
     ```bash
     pip install -r requirements.txt
     ```
 
-3. Ustvarite `.env` datoteko z naslednjimi spremenljivkami:
+3. Create a `.env` file with the following variables:
     ```env
-    POSTGRES_PASSWORD=tvoj_postgres_password
-    S3_ACCESS_KEY=tvoj_s3_access_key
-    S3_SECRET_ACCESS_KEY=tvoj_s3_secret_key
-    ZRSVN_AZURE_OPENAI_ENDPOINT=tvoj_azure_endpoint
-    ZRSVN_AZURE_OPENAI_KEY=tvoj_azure_openai_key
+    POSTGRES_PASSWORD=your_postgres_password
+    S3_ACCESS_KEY=your_s3_access_key
+    S3_SECRET_ACCESS_KEY=your_s3_secret_key
+    ZRSVN_AZURE_OPENAI_ENDPOINT=your_azure_endpoint
+    ZRSVN_AZURE_OPENAI_KEY=your_azure_openai_key
     ```
 
-4. Pripravite PostgreSQL bazo:
-- Ustvarite bazo `zrsvn` s shemo `rag_najdbe`.
-- Namestite razširitvi `pgvector` in `paradedb`.
+4. Prepare the PostgreSQL database:
+- Create the `zrsvn` database with the `rag_najdbe` schema
+- Install the `pgvector` and `paradedb` extensions
 
-## Zagon aplikacije
+## Running the application
 
 ```bash
 python app.py
+```
