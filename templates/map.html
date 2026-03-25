@@ -1,18 +1,15 @@
 <!DOCTYPE html>
-<html lang="sl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Map Interface</title>
     
-    <!-- Leaflet CSS in JS za prikaz interaktivnih zemljevidov. -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    <!-- Leaflet Draw, ki vsebuje orodja za risanje geometrijskih likov na zemljevidu. -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 
-    <!-- Leaflet Marker Cluster za združevanje blizu ležečih markerjev v grozde. -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css">
     <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
@@ -38,27 +35,19 @@
     </style>
 </head>
 <body>
-     <!-- Element za Leaflet zemljevid. -->
     <div id="map"></div>
     <div id="output"></div>
 
     <script>
     document.addEventListener("DOMContentLoaded", function() {
-        // Leaflet zemljevid inicializiramo na koordinatah 46.05, 14.5 (tj. osredinjeno
-        // na Slovenijo), z nivojem povečave nastavljenim na 9.
         var map = L.map('map').setView([46.05, 14.5], 9);
         
-        // Dodamo OpenStreetMap kot osnovno plast (ang. layer) zemljevida.
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        // Ustvarimo grozd markerjev, da se bližnji markerji samodejno združujejo
-        // in ne prekrivajo.
         var markerCluster = L.markerClusterGroup();
         map.addLayer(markerCluster);
-
-        // // Ob vsaki osvežitvi strani naj bodo privzeto izbrane vse datoteke.
         fetch("http://localhost:8000/reset_to_all_files/", {
             method: "POST"
         })
@@ -68,9 +57,6 @@
         })
         .catch(error => console.error("❌ Error resetting to all files:", error));
 
-        // Prek FastAPIja pridobimo podatke o koordinatah vseh točk, 
-        // ki so podani v obliki JSON, kjer je vsak zapis ločen z novo vrstico
-        // (newline-delimited JSON).
         fetch("http://localhost:8000/get_all_points/")
             .then(response => response.text())
             .then(text => {
@@ -87,8 +73,6 @@
                                 [coords[1] + jitter, coords[0] + jitter],
                                 { radius: 2.5, color: "red", fillColor: "red", fillOpacity: 0.7 }
                             ).bindPopup(`Coordinates: ${coords[1]}, ${coords[0]}`);
-                            // Prek tega ukaza posamezen marker dodamo v grozd
-                            // markerjev.
                             markerCluster.addLayer(marker);
                         }
                     } catch (error) {
@@ -98,12 +82,9 @@
             })
             .catch(error => console.error("❌ Fetch Error:", error));
 
-        // Leaflet Draw: dodamo plast, kamor se shranjujejo narisani liki.
         var drawnItems = new L.FeatureGroup();
         map.addLayer(drawnItems);
 
-        // Konfiguracija orodij za risanje: dovolimo le pravokotnike,
-        // oz. robne okvirje.
         var drawControl = new L.Control.Draw({
             draw: {
                 polygon: false,
@@ -116,8 +97,8 @@
         });
         map.addControl(drawControl);
 
-        /* Ustvarimo lasten gumb za čiščenje vsebine ("Clear"): 
-           z njim pobrišemo narisane robne okvirje in ponastavimo izbor dokumentov. */
+          /* Create a custom "Clear" button:
+              it clears drawn bounding boxes and resets the document selection. */
         var ClearControl = L.Control.extend({
             options: { position: 'topleft' },
             onAdd: function(map) {
@@ -137,10 +118,8 @@
                 L.DomEvent.disableClickPropagation(container);
 
                 container.onclick = function() {
-                    // Robne okvirje pobrišemo.
                     drawnItems.clearLayers();
-
-                    // Izbor ponastavimo na vse datoteke.
+y
                     fetch("http://localhost:8000/reset_to_all_files/", { method: "POST" })
                         .then(response => response.json())
                         .then(data => {
@@ -154,41 +133,31 @@
 
         map.addControl(new ClearControl());
 
-        /* Lovimo dogodek, ko se risanje prične. Ob slednjem dogodku umaknemo grozde
-           točk in morebitne že narisane like. */
         map.on('draw:drawstart', function () {
             console.log("✏️ Drawing started - Hiding clusters");
             map.removeLayer(markerCluster);
             drawnItems.clearLayers();
         });
 
-        /* Lovimo dogodek, ko se risanje konča. Grozde točk pomaknemo nazaj
-           na zemljevid. */
         map.on('draw:drawstop', function () {
             console.log("✅ Drawing stopped - Showing clusters");
             map.addLayer(markerCluster);
         });
-        /* Ko uporabnik na zemljevidu nariše robni okvir z orodjem Leaflet Draw
-        se sproži dogodek draw:created. Znotraj tega dogodka layer.getBounds() poskrbi
-        za pridobitev geografskih koordinat robnega okvirja. Koordinate so podane v
-        EPSG:4326 oz.WSG 84 (World Geodetic System 1984), ki je standard pri
-        globalnem določanju zemljepisnih lokacij. Slednje koordinate se vključijo
-        v HTTP GET zahtevo, ki jo pošljemo FastAPI dostopni točki  /get_files/,
-        ki sprejema argumente min_lat, max_lat, min_lon, max_lon. FastAPI funkcija
-        na podlagi prejetih podatkov izvede SQL poizvedbo kjer koordinate, podane
-        v EPSG:4326 pretvori v lokalni koordinatni sistem EPSG:3794 in nato prek
-        povezanih tabel files in najdbe poišče vse dokumente, katerih geometrijske
-        točke (tj. najdbe vrst rastlin in/ali živali, ki so vezane na dokument) 
-        se nahajajo znotraj območja, ki ga je uporabnik zarisal na zemljevidu. Izbrane
-        datoteke se shranijo v ločeno tabelo selected_files_log. Ta služi shranjevanju
-        trenutno aktivnega izbora datotek. To prinese s sabo naslednje koristi:
-        - Ohranimo stanje izbora v primeru izpada povezljivosti do baze.
-        - Omogočimo bolj enostavno in učinkovito filtriranje pri nadaljnjih iskalnih
-          poizvedbah.
-        - Z ločitvijo stanja proč od samih podatkov omogočimo lažje prihodnje nadgradnje
-          za upravljanje izborov med več različnimi uporabniškimi sejami.
-        Celoten mehanizem tega dela kode omogoči dinamično filtriranje dokumentov glede
-        na geografsko območje, ki ga uporabnik izbere z risanjem po zemljevidu. */
+                /* When the user draws a bounding box on the map with Leaflet Draw,
+                the draw:created event is triggered. Inside this event, layer.getBounds() retrieves
+                the geographic coordinates of the bounding box. The coordinates are given in
+                EPSG:4326 or WSG 84 (World Geodetic System 1984), which is the standard for
+                global geographic locations. These coordinates are included in an HTTP GET request
+                sent to the FastAPI endpoint /get_files/, which accepts min_lat, max_lat, min_lon, max_lon as arguments.
+                The FastAPI function, based on the received data, performs an SQL query where the coordinates in EPSG:4326
+                are converted to the local coordinate system EPSG:3794 and then, through the related tables files and najdbe,
+                finds all documents whose geometric points (i.e., findings of plant and/or animal species linked to the document)
+                are located within the area drawn by the user. The selected files are saved in a separate table selected_files_log.
+                This serves to store the currently active file selection. This brings the following benefits:
+                - The selection state is preserved in case of database connectivity loss.
+                - Enables easier and more efficient filtering for subsequent search queries.
+                - By separating the state from the data itself, it allows for easier future upgrades for managing selections across multiple user sessions.
+                The entire mechanism of this part of the code enables dynamic filtering of documents based on the geographic area selected by the user by drawing on the map. */
         map.on('draw:created', function (e) {
             drawnItems.clearLayers();
             var layer = e.layer;
@@ -199,8 +168,7 @@
             var minLon = bounds.getSouthWest().lng;
             var maxLat = bounds.getNorthEast().lat;
             var maxLon = bounds.getNorthEast().lng;
-            // Pokličemo FastAPI dostopno točko /get_filenames/ s parametri narisanega
-            // robnega okvirja.
+
             fetch(`http://localhost:8000/get_files/?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}`)
                 .then(response => response.json())
                 .then(data => {
