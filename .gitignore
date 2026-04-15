@@ -1,6 +1,5 @@
 *.csv
 *.bak
 .env
-assets/
 .logfire/
 __pycache__/
