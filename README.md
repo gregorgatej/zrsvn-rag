@@ -14,26 +14,21 @@ Web application with lexical, semantic, and hybrid search capabilities and answe
 - Interactive Leaflet map for drawing bounding boxes
 ![Interactive map](docs/assets/interactive_map.png)
 <br>
-<br>
 
 - Three search modes: lexical (BM25), semantic (pgvector), and hybrid (RRF)
 ![Search modes](docs/assets/search_modes.png)
-<br>
 <br>
 
 - Conversational interface via Azure OpenAI
 ![Conversation](docs/assets/conversation.png)
 <br>
-<br>
 
 - Generation of presigned URLs for viewing contextual PDF documents
 ![Presigned URLs](docs/assets/presigned_urls.png)
 <br>
-<br>
 
 - User feedback logging
 ![User feedback](docs/assets/user_feedback.png)
-<br>
 <br>
 
 - Observability via Logfire integration
