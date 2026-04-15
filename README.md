@@ -2,13 +2,28 @@
 
 Web application with lexical, semantic, and hybrid search capabilities and answer generation based on selected documents.
 
+![Whole UI](docs/assets/whole_ui.png)
+
+*Overview of the ZRSVN RAG web application interface.*  
+*As you can see, most user-facing text was originally written in Slovene, reflecting the principal target users.*
+
 ## Features
 
 - Interactive Leaflet map for drawing bounding boxes
+![Interactive map](docs/assets/interactive_map.png)
+
 - Three search modes: lexical (BM25), semantic (pgvector), and hybrid (RRF)
-- Conversational interface via Azure OpenAI (default model is GPT-4o-mini)
+![Search modes](docs/assets/search_modes.png)
+
+- Conversational interface via Azure OpenAI
+![Conversation](docs/assets/conversation.png)
+
 - Generation of presigned URLs for viewing contextual PDF documents
+![Presigned URLs](docs/assets/presigned_urls.png)
+
 - User feedback logging
+![User feedback](docs/assets/user_feedback.png)
+
 - Observability via Logfire integration
 
 ## Technical requirements
