@@ -63,7 +63,7 @@ Web application with lexical, semantic, and hybrid search capabilities and answe
     ```
 
 4. Prepare the PostgreSQL database:
-- Create the `zrsvn` database with the `rag_najdbe` schema
+- Create the `zrsvn` database following the schema that is provided in [this README](https://github.com/gregorgatej/zrsvn-rag-preprocessing)
 - Install the `pgvector` and `paradedb` extensions
 
 ## Running the application
